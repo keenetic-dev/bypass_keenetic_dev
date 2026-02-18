@@ -28,6 +28,7 @@ import base64
 # import datetime
 import requests
 import json
+import urllib.parse
 import bot_config as config
 
 token = config.token
@@ -562,20 +563,79 @@ def vmess(key):
     f.write(sh)
     f.close()
 
-def trojan(key):
-    # global appapiid, appapihash, password, localporttrojan
+#def trojan(key):
+#    # global appapiid, appapihash, password, localporttrojan
+#    key = key.split('//')[1]
+#    pw = key.split('@')[0]
+#    key = key.replace(pw + "@", "", 1)
+#    host = key.split(':')[0]
+#    key = key.replace(host + ":", "", 1)
+#    port = key.split('?')[0].split('#')[0]
+#    f = open('/opt/etc/trojan/config.json', 'w')
+#    sh = '{"run_type":"nat","local_addr":"::","local_port":' \
+#         + str(localporttrojan) + ',"remote_addr":"' + host + '","remote_port":' + port + \
+#         ',"password":["' + pw + '"],"ssl":{"verify":false,"verify_hostname":false}}'
+#    f.write(sh)
+#    f.close()
+
+import urllib.parse
+import json
+
+def trojan(key, localporttrojan):
+    # Извлекаем часть после "trojan://"
     key = key.split('//')[1]
+    # Извлекаем пароль
     pw = key.split('@')[0]
+    # Убираем пароль из ключа
     key = key.replace(pw + "@", "", 1)
-    host = key.split(':')[0]
-    key = key.replace(host + ":", "", 1)
-    port = key.split('?')[0].split('#')[0]
-    f = open('/opt/etc/trojan/config.json', 'w')
-    sh = '{"run_type":"nat","local_addr":"::","local_port":' \
-         + str(localporttrojan) + ',"remote_addr":"' + host + '","remote_port":' + port + \
-         ',"password":["' + pw + '"],"ssl":{"verify":false,"verify_hostname":false}}'
-    f.write(sh)
-    f.close()
+    
+    # Извлекаем хост и порт
+    host_port = key.split('?')[0]
+    host = host_port.split(':')[0]
+    port = host_port.split(':')[1] if len(host_port.split(':')) > 1 else '443'  # если порт не указан, ставим 443
+    
+    # Извлекаем параметры из query строки (после '?')
+    params = urllib.parse.parse_qs(key.split('?')[1]) if '?' in key else {}
+
+    # Формируем параметры SSL
+    ssl_params = {
+        "verify": False,
+        "verify_hostname": False
+    }
+
+    # Формируем базовую структуру JSON
+    config = {
+        "run_type": "nat",
+        "local_addr": "::",
+        "local_port": localporttrojan,
+        "remote_addr": host,
+        "remote_port": port,
+        "password": [pw],
+        "ssl": ssl_params
+    }
+
+    # Обработка дополнительных параметров, если они есть
+    if 'sni' in params:
+        sni = params['sni'][0]
+        config['ssl']['sni'] = sni
+    if 'security' in params:
+        config['ssl']['security'] = params['security'][0]
+    if 'type' in params:
+        config['type'] = params['type'][0]
+    if 'path' in params:
+        config['ssl']['path'] = params['path'][0]
+    if 'host' in params:
+        config['ssl']['host'] = params['host'][0]
+    if 'prefix' in params:
+        config['ssl']['prefix'] = params['prefix'][0]
+    if 'allowInsecure' in params:
+        config['ssl']['allowInsecure'] = params['allowInsecure'][0]    
+    if 'sid' in params:
+        config['sid'] = params['sid'][0]
+
+    # Запись в файл config.json
+    with open('/opt/etc/trojan/config.json', 'w') as f:
+        f.write(json.dumps(config, indent=4))
 
 def shadowsocks(key=None):
     # global appapiid, appapihash, password, localportsh
