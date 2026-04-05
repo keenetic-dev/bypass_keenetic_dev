@@ -4,6 +4,7 @@ ipset create unblocksh hash:net -exist
 ipset create unblocktor hash:net -exist
 ipset create unblockvmess hash:net -exist
 ipset create unblocktroj hash:net -exist
+ipset create unblockrouter hash:net -exist
 # ipset create unblockvpn hash:net -exist
 
 if ls -d /opt/etc/unblock/vpn-*.txt >/dev/null 2>&1; then

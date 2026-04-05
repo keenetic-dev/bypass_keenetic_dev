@@ -46,12 +46,25 @@ done
 #fi
 
 
+if [ -z "$(iptables-save 2>/dev/null | grep unblockrouter)" ]; then
+#if ! iptables -t nat -C OUTPUT -p tcp -m set --match-set unblockrouter dst -j REDIRECT --to-port 10820 2>/dev/null; then
+	ipset create unblockrouter hash:net -exist 2>/dev/null
+        # Пропускаем трафик на петлю (lo) и локалку, чтобы не ломать сервисы
+        iptables -t nat -I OUTPUT -o lo -j RETURN
+        iptables -t nat -I OUTPUT -d 192.168.1.0/24 -j RETURN
+
+        # Теперь заворачиваем только то, что в списке unblockrouter
+        iptables -t nat -A OUTPUT -p tcp -m set --match-set unblockrouter dst -j REDIRECT --to-port 10820
+        iptables -t nat -A OUTPUT -p udp -m set --match-set unblockrouter dst -j REDIRECT --to-port 10820
+fi
+
+
 if [ -z "$(iptables-save 2>/dev/null | grep unblocksh)" ]; then
 	ipset create unblocksh hash:net -exist 2>/dev/null
 
 	# достаточно таких правил, для работы на всех интерфейсах (br0, br1, sstp0, sstp2, etc)
-	iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblocksh dst -j REDIRECT --to-port 1082
-	iptables -I PREROUTING -w -t nat -p udp -m set --match-set unblocksh dst -j REDIRECT --to-port 1082
+	iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblocksh dst -j REDIRECT --to-port 10820
+	iptables -I PREROUTING -w -t nat -p udp -m set --match-set unblocksh dst -j REDIRECT --to-port 10820
 
 	# если у вас другой конфиг dnsmasq, и вы слушаете только определенный ip, раскоментируйте следующие строки, поставьте свой ip
 	#iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblocksh dst --dport 53 -j DNAT --to 192.168.1.1
