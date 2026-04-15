@@ -985,8 +985,10 @@ def _parse_vmess_key(key):
         raise ValueError(f'Неверный JSON в vmess-ключе: {exc}')
     if not data.get('add') or not data.get('port') or not data.get('id'):
         raise ValueError('В vmess-ключе нет server/port/id')
-    if data.get('net') == 'grpc' and not data.get('serviceName') and not data.get('grpcSettings', {}).get('serviceName'):
-        raise ValueError('В vmess-ключе grpc требует serviceName')
+    if data.get('net') == 'grpc':
+        service_name = data.get('serviceName') or data.get('grpcSettings', {}).get('serviceName')
+        if not service_name:
+            data['serviceName'] = data.get('add')
     return data
 
 
@@ -1012,8 +1014,8 @@ def _parse_vless_key(key):
         path = '/'
     sni = params.get('sni', [''])[0] or host
     service_name = params.get('serviceName', [''])[0]
-    if network == 'grpc' and not service_name:
-        raise ValueError('В vless-ключе grpc требует serviceName')
+    if not service_name and (network == 'grpc' or security == 'reality'):
+        service_name = address
     return {
         'address': address,
         'port': port,
@@ -1146,6 +1148,14 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
             stream_settings['grpcSettings'] = {
                 'serviceName': vless_data.get('serviceName', ''),
                 'multiMode': False
+            }
+        elif security == 'reality':
+            stream_settings['security'] = 'reality'
+            stream_settings['realitySettings'] = {
+                'show': False,
+                'serverNames': [vless_data.get('serviceName', '')],
+                'dest': f"{vless_data.get('host', '')}:{vless_data.get('port', 443)}",
+                'xver': 0
             }
         config_data['outbounds'].append({
             'tag': 'proxy-vless',
