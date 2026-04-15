@@ -31,6 +31,7 @@ import base64
 # import datetime
 import requests
 import json
+import html
 import bot_config as config
 
 token = config.token
@@ -685,7 +686,14 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode('utf-8'))
 
-    def _build_form(self):
+    def _build_form(self, message=''):
+        message_block = ''
+        if message:
+            safe_message = html.escape(message)
+            message_block = f'''<div style="background:#fff9c4;border:1px solid #f0c14b;padding:16px;border-radius:8px;margin-bottom:18px;">
+  <strong>Результат:</strong>
+  <p>{safe_message}</p>
+</div>'''
         return f'''<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -697,15 +705,16 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
   <h1>Установка ключей VPN через браузер</h1>
   <p>Выберите тип ключа и вставьте содержимое в форму ниже.</p>
   <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
+  {message_block}
   <section>
     <h2>Протокол бота</h2>
     <form method="post" action="/set_proxy">
       <select name="proxy_type">
-        <option value="none">Без VPN (по умолчанию)</option>
-        <option value="shadowsocks">Shadowsocks</option>
-        <option value="vmess">Vmess</option>
-        <option value="vless">Vless</option>
-        <option value="trojan">Trojan</option>
+        <option value="none"{' selected' if proxy_mode == 'none' else ''}>Без VPN (по умолчанию)</option>
+        <option value="shadowsocks"{' selected' if proxy_mode == 'shadowsocks' else ''}>Shadowsocks</option>
+        <option value="vmess"{' selected' if proxy_mode == 'vmess' else ''}>Vmess</option>
+        <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless</option>
+        <option value="trojan"{' selected' if proxy_mode == 'trojan' else ''}>Trojan</option>
       </select>
       <button type="submit">Использовать для бота</button>
     </form>
@@ -778,31 +787,14 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 result = f'Режим бота установлен: {proxy_type}'
             else:
                 result = f'⚠️ {error}'
-            html = f'''<!DOCTYPE html>
-<html lang="ru">
-<head><meta charset="UTF-8"><title>Результат установки</title></head>
-<body style="font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f5f5;">
-  <h1>Результат</h1>
-  <p>{result}</p>
-  <p><a href="/">Вернуться назад</a></p>
-</body>
-</html>'''
-            self._send_html(html)
+            self._send_html(self._build_form(result))
             return
 
         if self.path == '/start':
             global bot_ready
             bot_ready = True
-            html = '''<!DOCTYPE html>
-<html lang="ru">
-<head><meta charset="UTF-8"><title>Бот запущен</title></head>
-<body style="font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f5f5;">
-  <h1>Бот запущен</h1>
-  <p>Теперь бот начал polling Telegram API.</p>
-  <p><a href="/">Вернуться назад</a></p>
-</body>
-</html>'''
-            self._send_html(html)
+            result = 'Бот запущен. Теперь бот начал polling Telegram API.'
+            self._send_html(self._build_form(result))
             return
 
         if self.path != '/install':
@@ -873,21 +865,12 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             else:
                 result = 'Тип ключа не распознан.'
         except Exception as exc:
-            result = f'Ошибка: {exc}'
+            result = f'Ошибка установки: {exc}'
         else:
             if result.startswith('✅'):
                 result = f'{result} {check_telegram_api()}'
 
-        html = f'''<!DOCTYPE html>
-<html lang="ru">
-<head><meta charset="UTF-8"><title>Результат установки</title></head>
-<body style="font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f5f5;">
-  <h1>Результат</h1>
-  <p>{result}</p>
-  <p><a href="/">Вернуться назад</a></p>
-</body>
-</html>'''
-        self._send_html(html)
+        self._send_html(self._build_form(result))
 
 
 def start_http_server():
