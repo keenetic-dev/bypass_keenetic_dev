@@ -163,6 +163,30 @@ def _format_proxy_key_summary(key_type, key_value):
     return ''
 
 
+def _v2ray_outbound_summary(vmess_key=None, vless_key=None):
+    try:
+        config_data = _build_v2ray_config(vmess_key, vless_key)
+        lines = []
+        for outbound in config_data.get('outbounds', []):
+            tag = outbound.get('tag', '')
+            protocol = outbound.get('protocol', '')
+            stream = outbound.get('streamSettings', {})
+            if protocol in ['vless', 'vmess']:
+                vnext = outbound.get('settings', {}).get('vnext', [])
+                if vnext:
+                    entry = vnext[0]
+                    addr = entry.get('address', '')
+                    port = entry.get('port', '')
+                    lines.append(f'{tag}:{protocol} -> {addr}:{port} stream={stream}')
+                else:
+                    lines.append(f'{tag}:{protocol} stream={stream}')
+            else:
+                lines.append(f'{tag}:{protocol} stream={stream}')
+        return ' '.join(lines)
+    except Exception as exc:
+        return f'Не удалось построить сводный outbound-конфиг: {exc}'
+
+
 def update_proxy(proxy_type):
     global proxy_mode
     proxy_url = proxy_settings.get(proxy_type)
@@ -911,9 +935,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                             result = ('✅ Vless успешно обновлен. Бот будет использовать Vless. ' + key_summary)
                         else:
                             diagnostics = _v2ray_diagnostics()
+                            outbound_summary = _v2ray_outbound_summary(None, key_value)
                             result = ('⚠️ Vless обновлен, локальный SOCKS-порт 127.0.0.1:'
                                       + str(localportvless) + ' доступен, но Telegram API не прошёл через SOCKS. '
-                                      + api_status + ' ' + diagnostics + ' ' + key_summary)
+                                      + api_status + ' ' + diagnostics + ' ' + key_summary
+                                      + ' Сводка outbound: ' + outbound_summary)
                 else:
                     result = f'⚠️ Vless обновлен, но прокси не применён: {error}'
             elif key_type == 'trojan':
