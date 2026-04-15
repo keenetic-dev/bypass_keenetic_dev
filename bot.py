@@ -53,12 +53,13 @@ bot = telebot.TeleBot(token)
 level = 0
 bypass = -1
 sid = "0"
+bot_ready = False
 proxy_mode = config.default_proxy_mode
 proxy_settings = {
     'none': None,
-    'shadowsocks': f'socks5://127.0.0.1:{localportsh}',
-    'vmess': f'socks5://127.0.0.1:{localportvmess}',
-    'vless': f'socks5://127.0.0.1:{localportvless}',
+    'shadowsocks': f'socks5h://127.0.0.1:{localportsh}',
+    'vmess': f'socks5h://127.0.0.1:{localportvmess}',
+    'vless': f'socks5h://127.0.0.1:{localportvless}',
     'trojan': f'http://127.0.0.1:{localporttrojan}',
 }
 
@@ -668,6 +669,13 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
       <button type="submit">Установить Tor</button>
     </form>
   </section>
+  <section>
+    <h2>Запустить бот</h2>
+    <p>После установки ключей нажмите кнопку, чтобы бот начал работу.</p>
+    <form method="post" action="/start">
+      <button type="submit">Запустить бота</button>
+    </form>
+  </section>
 </body>
 </html>'''
 
@@ -691,6 +699,21 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
 <body style="font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f5f5;">
   <h1>Результат</h1>
   <p>{result}</p>
+  <p><a href="/">Вернуться назад</a></p>
+</body>
+</html>'''
+            self._send_html(html)
+            return
+
+        if self.path == '/start':
+            global bot_ready
+            bot_ready = True
+            html = '''<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><title>Бот запущен</title></head>
+<body style="font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f5f5;">
+  <h1>Бот запущен</h1>
+  <p>Теперь бот начал polling Telegram API.</p>
   <p><a href="/">Вернуться назад</a></p>
 </body>
 </html>'''
@@ -752,6 +775,13 @@ def start_http_server():
     except Exception as err:
         with open('/opt/etc/error.log', 'w') as errfile:
             errfile.write(str(err))
+
+
+def wait_for_bot_start():
+    global bot_ready
+    while not bot_ready:
+        time.sleep(1)
+
 
 def _read_v2ray_key(file_path):
     try:
@@ -1045,6 +1075,7 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 # bot.polling(none_stop=True)
 update_proxy(config.default_proxy_mode)
 start_http_server()
+wait_for_bot_start()
 try:
     bot.infinity_polling()
 except Exception as err:
