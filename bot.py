@@ -22,7 +22,7 @@ import time
 import threading
 import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import telebot
 from telebot import types
@@ -66,7 +66,14 @@ proxy_settings = {
     'shadowsocks': f'socks5h://127.0.0.1:{localportsh}',
     'vmess': f'socks5h://127.0.0.1:{localportvmess}',
     'vless': f'socks5h://127.0.0.1:{localportvless}',
-    'trojan': f'http://127.0.0.1:{localporttrojan}',
+    'trojan': None,
+}
+proxy_supports_http = {
+    'none': True,
+    'shadowsocks': True,
+    'vmess': True,
+    'vless': True,
+    'trojan': False,
 }
 
 
@@ -107,9 +114,11 @@ def _load_proxy_mode():
     return config.default_proxy_mode
 
 
-def _wait_for_port(hosts, port, timeout=12):
+def _wait_for_port(hosts, port, timeout=15):
     import socket
-    if isinstance(hosts, str):
+    if hosts is None:
+        hosts = ['127.0.0.1', '::1', 'localhost']
+    elif isinstance(hosts, str):
         hosts = [hosts]
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -130,14 +139,36 @@ def _wait_for_port(hosts, port, timeout=12):
     return False
 
 
-def _ensure_service_port(port, restart_cmd=None, retries=1, sleep_after_restart=3):
-    if _wait_for_port(['127.0.0.1', '::1'], port, timeout=10):
+def _port_is_listening(port):
+    try:
+        output = subprocess.check_output(['netstat', '-ltn'], stderr=subprocess.DEVNULL, text=True)
+        for line in output.splitlines():
+            if f':{port} ' in line or line.endswith(f':{port}'):
+                return True
+    except Exception:
+        pass
+    try:
+        output = subprocess.check_output(['ss', '-ltn'], stderr=subprocess.DEVNULL, text=True)
+        for line in output.splitlines():
+            if f':{port} ' in line or line.endswith(f':{port}'):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _ensure_service_port(port, restart_cmd=None, retries=1, sleep_after_restart=5):
+    if _wait_for_port(None, port, timeout=15):
+        return True
+    if _port_is_listening(port):
         return True
     if restart_cmd:
         for _ in range(retries):
             os.system(restart_cmd)
             time.sleep(sleep_after_restart)
-            if _wait_for_port(['127.0.0.1', '::1'], port, timeout=10):
+            if _wait_for_port(None, port, timeout=15):
+                return True
+            if _port_is_listening(port):
                 return True
     return False
 
@@ -213,12 +244,12 @@ def _v2ray_outbound_summary(vmess_key=None, vless_key=None):
 def update_proxy(proxy_type):
     global proxy_mode
     proxy_url = proxy_settings.get(proxy_type)
-    if proxy_url and proxy_url.startswith('socks') and not _has_socks_support():
+    if proxy_type != 'trojan' and proxy_url and proxy_url.startswith('socks') and not _has_socks_support():
         return False, ('Для SOCKS-прокси требуется модуль PySocks. ' 
                        'Установите python3-pysocks или выберите другой режим.')
 
     proxy_mode = proxy_type
-    if proxy_url:
+    if proxy_supports_http.get(proxy_type, False) and proxy_url:
         telebot.apihelper.proxy = {'https': proxy_url, 'http': proxy_url}
         os.environ['HTTPS_PROXY'] = proxy_url
         os.environ['HTTP_PROXY'] = proxy_url
@@ -982,7 +1013,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 time.sleep(2)
                 ok, error = update_proxy('trojan')
                 if ok:
-                    result = '✅ Trojan успешно обновлен. Бот будет использовать Trojan.'
+                    result = ('✅ Trojan успешно обновлен. Бот будет использовать Trojan. '
+                              'Внимание: этот режим не поддерживает прокси Telegram API в текущей конфигурации.')
                 else:
                     result = f'⚠️ Trojan обновлен, но прокси не применён: {error}'
             elif key_type == 'tor':
@@ -1292,21 +1324,56 @@ def trojan(key):
     f.write(sh)
     f.close()
 
+def _decode_shadowsocks_uri(key):
+    if not key.startswith('ss://'):
+        raise ValueError('Неверный протокол, ожидается ss://')
+    payload = key[5:]
+    payload, _, _ = payload.partition('#')
+    payload, _, _ = payload.partition('?')
+    if '@' in payload:
+        left, right = payload.rsplit('@', 1)
+        host_part = right
+        if ':' not in host_part:
+            raise ValueError('Не удалось определить host:port в Shadowsocks-ключе')
+        server, port = host_part.split(':', 1)
+        try:
+            decoded = base64.urlsafe_b64decode(left + '=' * (-len(left) % 4)).decode('utf-8')
+            if ':' not in decoded:
+                raise ValueError('Неверный формат декодированного payload Shadowsocks')
+            method, password = decoded.split(':', 1)
+        except Exception:
+            decoded = unquote(left)
+            if ':' not in decoded:
+                raise ValueError('Неверный формат Shadowsocks credentials')
+            method, password = decoded.split(':', 1)
+    else:
+        decoded = base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)).decode('utf-8')
+        if '@' not in decoded:
+            raise ValueError('Не удалось разобрать Shadowsocks-ключ')
+        creds, host_part = decoded.rsplit('@', 1)
+        if ':' not in host_part or ':' not in creds:
+            raise ValueError('Неверный формат раскодированного Shadowsocks-URI')
+        server, port = host_part.split(':', 1)
+        method, password = creds.split(':', 1)
+    return server, port, method, password
+
+
 def shadowsocks(key=None):
-    # global appapiid, appapihash, password, localportsh
-    encodedkey = str(key).split('//')[1].split('@')[0] + '=='
-    password = str(str(base64.b64decode(encodedkey)[2:]).split(':')[1])[:-1]
-    server = str(key).split('@')[1].split('/')[0].split(':')[0]
-    port = str(key).split('@')[1].split('/')[0].split(':')[1].split('#')[0]
-    method = str(str(base64.b64decode(encodedkey)).split(':')[0])[2:]
-    f = open('/opt/etc/shadowsocks.json', 'w')
-    sh = '{"server": ["' + server + '"], "mode": "tcp_and_udp", "server_port": ' \
-         + str(port) + ', "password": "' + password + \
-         '", "timeout": 86400,"method": "' + method + \
-         '", "local_address": "::", "local_port": ' \
-         + str(localportsh) + ', "fast_open": false,    "ipv6_first": true}'
-    f.write(sh)
-    f.close()
+    server, port, method, password = _decode_shadowsocks_uri(key.strip())
+    config = {
+        'server': [server],
+        'mode': 'tcp_and_udp',
+        'server_port': int(port),
+        'password': password,
+        'timeout': 86400,
+        'method': method,
+        'local_address': '::',
+        'local_port': int(localportsh),
+        'fast_open': False,
+        'ipv6_first': True
+    }
+    with open('/opt/etc/shadowsocks.json', 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
 
 def tormanually(bridges):
     # global localporttor, dnsporttor
