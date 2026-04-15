@@ -1180,7 +1180,7 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
             stream_settings['realitySettings'] = {
                 'show': False,
                 'serverNames': [vless_data.get('serviceName', '')],
-                'dest': f"{vless_data.get('host', '')}:{vless_data.get('port', 443)}",
+                'dest': f"{vless_data.get('address', '')}:{vless_data.get('port', 443)}",
                 'xver': 0
             }
         config_data['outbounds'].append({
