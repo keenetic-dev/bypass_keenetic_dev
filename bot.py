@@ -17,8 +17,10 @@ import asyncio
 import subprocess
 import os
 import stat
+import sys
 import time
 import threading
+import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -73,6 +75,27 @@ def _has_socks_support():
         return True
     except Exception:
         return False
+
+
+def _daemonize_process():
+    if os.name != 'posix':
+        return
+    try:
+        if os.fork() > 0:
+            os._exit(0)
+        os.setsid()
+        if os.fork() > 0:
+            os._exit(0)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        sys.stdin.flush()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        with open('/dev/null', 'rb', 0) as stdin, open('/dev/null', 'ab', 0) as stdout, open('/dev/null', 'ab', 0) as stderr:
+            os.dup2(stdin.fileno(), sys.stdin.fileno())
+            os.dup2(stdout.fileno(), sys.stdout.fileno())
+            os.dup2(stderr.fileno(), sys.stderr.fileno())
+    except Exception:
+        pass
 
 
 def _save_proxy_mode(proxy_type):
@@ -1181,7 +1204,9 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
             stream_settings['security'] = 'reality'
             stream_settings['realitySettings'] = {
                 'show': False,
-                'serverNames': [vless_data.get('serviceName', '')],
+                'serverNames': [
+                    vless_data.get('sni') or vless_data.get('serviceName', '') or vless_data.get('address', vless_data.get('host', ''))
+                ],
                 'dest': f"{vless_data.get('address', vless_data.get('host', ''))}:{vless_data.get('port', 443)}",
                 'xver': 0
             }
@@ -1325,6 +1350,7 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 
 
 # bot.polling(none_stop=True)
+_daemonize_process()
 proxy_mode = _load_proxy_mode()
 ok, error = update_proxy(proxy_mode)
 if not ok:
