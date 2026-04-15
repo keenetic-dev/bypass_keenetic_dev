@@ -53,6 +53,8 @@ bot = telebot.TeleBot(token)
 level = 0
 bypass = -1
 sid = "0"
+PROXY_MODE_FILE = '/opt/etc/bot_proxy_mode'
+
 bot_ready = False
 proxy_mode = config.default_proxy_mode
 proxy_settings = {
@@ -64,10 +66,42 @@ proxy_settings = {
 }
 
 
+def _has_socks_support():
+    try:
+        import socks  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _save_proxy_mode(proxy_type):
+    try:
+        os.makedirs(os.path.dirname(PROXY_MODE_FILE), exist_ok=True)
+        with open(PROXY_MODE_FILE, 'w', encoding='utf-8') as file:
+            file.write(proxy_type)
+    except Exception:
+        pass
+
+
+def _load_proxy_mode():
+    try:
+        with open(PROXY_MODE_FILE, 'r', encoding='utf-8') as file:
+            saved = file.read().strip()
+        if saved in proxy_settings:
+            return saved
+    except Exception:
+        pass
+    return config.default_proxy_mode
+
+
 def update_proxy(proxy_type):
     global proxy_mode
-    proxy_mode = proxy_type
     proxy_url = proxy_settings.get(proxy_type)
+    if proxy_url and proxy_url.startswith('socks') and not _has_socks_support():
+        return False, ('Для SOCKS-прокси требуется модуль PySocks. ' 
+                       'Установите python3-pysocks или выберите другой режим.')
+
+    proxy_mode = proxy_type
     if proxy_url:
         telebot.apihelper.proxy = {'https': proxy_url, 'http': proxy_url}
         os.environ['HTTPS_PROXY'] = proxy_url
@@ -80,6 +114,9 @@ def update_proxy(proxy_type):
             if key in os.environ:
                 del os.environ[key]
 
+    _save_proxy_mode(proxy_type)
+    return True, None
+
 
 def check_telegram_api():
     url = f'https://api.telegram.org/bot{token}/getMe'
@@ -90,8 +127,11 @@ def check_telegram_api():
         data = response.json()
         if data.get('ok'):
             return '✅ Доступ к api.telegram.org подтверждён.'
-        return f'⚠️ Telegram API ответил: {data.get("description", "Не удалось определить причину")}'
+        return f'⚠️ Telegram API ответил: {data.get("description", "Не удалось определить причину")} '
     except requests.exceptions.RequestException as exc:
+        if 'Missing dependencies for SOCKS support' in str(exc):
+            return ('❌ Не удалось подключиться к Telegram API: отсутствует поддержка SOCKS (PySocks). '
+                    'Установите python3-pysocks или используйте режим без SOCKS.')
         return f'❌ Не удалось подключиться к Telegram API: {exc}'
 
 # список смайлов для меню
@@ -705,8 +745,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length).decode('utf-8')
             data = parse_qs(body)
             proxy_type = data.get('proxy_type', ['none'])[0]
-            update_proxy(proxy_type)
-            result = f'Режим бота установлен: {proxy_type}'
+            ok, error = update_proxy(proxy_type)
+            if ok:
+                result = f'Режим бота установлен: {proxy_type}'
+            else:
+                result = f'⚠️ {error}'
             html = f'''<!DOCTYPE html>
 <html lang="ru">
 <head><meta charset="UTF-8"><title>Результат установки</title></head>
@@ -748,26 +791,38 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 shadowsocks(key_value)
                 os.system('/opt/etc/init.d/S22shadowsocks restart')
                 time.sleep(2)
-                update_proxy('shadowsocks')
-                result = '✅ Shadowsocks успешно обновлен. Бот будет использовать Shadowsocks.'
+                ok, error = update_proxy('shadowsocks')
+                if ok:
+                    result = '✅ Shadowsocks успешно обновлен. Бот будет использовать Shadowsocks.'
+                else:
+                    result = f'⚠️ Shadowsocks обновлен, но прокси не применён: {error}'
             elif key_type == 'vmess':
                 vmess(key_value)
                 os.system('/opt/etc/init.d/S24v2ray restart')
                 time.sleep(2)
-                update_proxy('vmess')
-                result = '✅ Vmess успешно обновлен. Бот будет использовать Vmess.'
+                ok, error = update_proxy('vmess')
+                if ok:
+                    result = '✅ Vmess успешно обновлен. Бот будет использовать Vmess.'
+                else:
+                    result = f'⚠️ Vmess обновлен, но прокси не применён: {error}'
             elif key_type == 'vless':
                 vless(key_value)
                 os.system('/opt/etc/init.d/S24v2ray restart')
                 time.sleep(2)
-                update_proxy('vless')
-                result = '✅ Vless успешно обновлен. Бот будет использовать Vless.'
+                ok, error = update_proxy('vless')
+                if ok:
+                    result = '✅ Vless успешно обновлен. Бот будет использовать Vless.'
+                else:
+                    result = f'⚠️ Vless обновлен, но прокси не применён: {error}'
             elif key_type == 'trojan':
                 trojan(key_value)
                 os.system('/opt/etc/init.d/S22trojan restart')
                 time.sleep(2)
-                update_proxy('trojan')
-                result = '✅ Trojan успешно обновлен. Бот будет использовать Trojan.'
+                ok, error = update_proxy('trojan')
+                if ok:
+                    result = '✅ Trojan успешно обновлен. Бот будет использовать Trojan.'
+                else:
+                    result = f'⚠️ Trojan обновлен, но прокси не применён: {error}'
             elif key_type == 'tor':
                 tormanually(key_value)
                 os.system('/opt/etc/init.d/S35tor restart')
@@ -1099,7 +1154,11 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 
 
 # bot.polling(none_stop=True)
-update_proxy(config.default_proxy_mode)
+proxy_mode = _load_proxy_mode()
+ok, error = update_proxy(proxy_mode)
+if not ok:
+    proxy_mode = config.default_proxy_mode
+    update_proxy(proxy_mode)
 start_http_server()
 wait_for_bot_start()
 try:
