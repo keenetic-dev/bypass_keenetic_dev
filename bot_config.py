@@ -8,6 +8,7 @@ usernames = ['MySuperLogin']  # Ваш логин в телеграмме без
 appapiid = 'myapiid'
 appapihash = 'myiphash'
 routerip = '192.168.1.1'  # ip роутера
+browser_port = '8080'  # порт для веб-интерфейса установки ключей
 
 # список vpn для выборочной маршрутизации
 vpn_allowed="IKE|SSTP|OpenVPN|Wireguard|L2TP"
@@ -17,7 +18,9 @@ localportsh = '1082'  # локальный порт для shadowsocks
 dnsporttor = '9053'  # чтобы onion сайты открывался через любой браузер - любой открытый порт
 localporttor = '9141'  # локальный порт для тор
 localportvmess = '10810'  # локальный порт для vmess
+localportvless = '10811'  # локальный порт для vless
 localporttrojan = '10829'  # локальный порт для trojan
+default_proxy_mode = 'none'  # выбор прокси для Telegram API: none, shadowsocks, vmess, vless, trojan
 dnsovertlsport = '40500'  # можно посмотреть номер порта командой "cat /tmp/ndnproxymain.stat"
 dnsoverhttpsport = '40508'  # можно посмотреть номер порта командой "cat /tmp/ndnproxymain.stat"
 
