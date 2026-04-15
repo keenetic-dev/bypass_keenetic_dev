@@ -818,7 +818,13 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                         result = ('⚠️ Shadowsocks обновлен, но локальный SOCKS-порт 127.0.0.1:'
                                   + str(localportsh) + ' недоступен. Бот переключён в режим none.')
                     else:
-                        result = '✅ Shadowsocks успешно обновлен. Бот будет использовать Shadowsocks.'
+                        api_status = check_telegram_api()
+                        if api_status.startswith('✅'):
+                            result = '✅ Shadowsocks успешно обновлен. Бот будет использовать Shadowsocks.'
+                        else:
+                            update_proxy('none')
+                            result = ('⚠️ Shadowsocks обновлен, но Telegram API недоступен через SOCKS. '
+                                      'Бот переключён в режим none. ' + api_status)
                 else:
                     result = f'⚠️ Shadowsocks обновлен, но прокси не применён: {error}'
             elif key_type == 'vmess':
@@ -832,7 +838,13 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                         result = ('⚠️ Vmess обновлен, но локальный SOCKS-порт 127.0.0.1:'
                                   + str(localportvmess) + ' недоступен. Бот переключён в режим none.')
                     else:
-                        result = '✅ Vmess успешно обновлен. Бот будет использовать Vmess.'
+                        api_status = check_telegram_api()
+                        if api_status.startswith('✅'):
+                            result = '✅ Vmess успешно обновлен. Бот будет использовать Vmess.'
+                        else:
+                            update_proxy('none')
+                            result = ('⚠️ Vmess обновлен, но Telegram API недоступен через SOCKS. '
+                                      'Бот переключён в режим none. ' + api_status)
                 else:
                     result = f'⚠️ Vmess обновлен, но прокси не применён: {error}'
             elif key_type == 'vless':
@@ -846,7 +858,13 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                         result = ('⚠️ Vless обновлен, но локальный SOCKS-порт 127.0.0.1:'
                                   + str(localportvless) + ' недоступен. Бот переключён в режим none.')
                     else:
-                        result = '✅ Vless успешно обновлен. Бот будет использовать Vless.'
+                        api_status = check_telegram_api()
+                        if api_status.startswith('✅'):
+                            result = '✅ Vless успешно обновлен. Бот будет использовать Vless.'
+                        else:
+                            update_proxy('none')
+                            result = ('⚠️ Vless обновлен, но Telegram API недоступен через SOCKS. '
+                                      'Бот переключён в режим none. ' + api_status)
                 else:
                     result = f'⚠️ Vless обновлен, но прокси не применён: {error}'
             elif key_type == 'trojan':
