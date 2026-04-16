@@ -9,8 +9,6 @@
 
 ## Установка обхода блокировок на роутерах Keenetic с установленной средой Entware, управление через телеграм бот. Обхода блокировок много не бывает! 
 
-![](bypass_keenetic.jpg)
-
 ## Что это и зачем
 - [Полное описание читайте в вики](https://github.com/znetworkx/bypass_keenetic/wiki)
 
@@ -51,12 +49,3 @@
 Полное описание:
 https://habr.com/ru/post/669314/
 -->
-
-Поддержать проект:
-* **znetworkx aka NetworK**
-* `4817760309908527` Сбербанк VISA
-
-* **tas-unn aka Masterland**
-* `2204120100988217` КАРТА МИР 
-* `410017539693882` Юмани 
-* `bc1qesjaxfad8f8azu2cp4gsvt2j9a4yshsc2swey9` Биткоин кошелёк
