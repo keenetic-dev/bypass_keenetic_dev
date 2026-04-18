@@ -20,7 +20,7 @@ ip4t() {
 	fi
 }
 
-local_ip=$(ip addr show br0 | grep 'inet' | awk '{print $2}' | grep -Eo '[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}')
+local_ip=$(ip -4 addr show br0 | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
 
 if [ -z "$local_ip" ]; then
     echo "[100-redirect.sh] br0 has no IPv4 address, skip DNS redirect" >&2
@@ -29,7 +29,7 @@ fi
 
 for protocol in udp tcp; do
 	if [ -z "$(iptables-save 2>/dev/null | grep "$protocol --dport 53 -j DNAT")" ]; then
-	iptables -I PREROUTING -w -t nat -i br0 -p "$protocol" --dport 53 -j DNAT --to "$local_ip"; fi
+	iptables -I PREROUTING -w -t nat -p "$protocol" --dport 53 -j DNAT --to "$local_ip"; fi
 done
 
 
