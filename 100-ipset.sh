@@ -3,6 +3,7 @@
 ipset create unblocksh hash:net -exist
 ipset create unblocktor hash:net -exist
 ipset create unblockvmess hash:net -exist
+ipset create unblockvless hash:net -exist
 ipset create unblocktroj hash:net -exist
 # ipset create unblockvpn hash:net -exist
 

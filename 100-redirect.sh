@@ -108,6 +108,21 @@ if [ -z "$(iptables-save 2>/dev/null | grep unblockvmess)" ]; then
 fi
 
 
+if [ -z "$(iptables-save 2>/dev/null | grep unblockvless)" ]; then
+  ipset create unblockvless hash:net -exist 2>/dev/null
+	iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+	iptables -I PREROUTING -w -t nat -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+
+	#iptables -I PREROUTING -w -t nat -i br0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+	#iptables -I PREROUTING -w -t nat -i br0 -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+	#iptables -A PREROUTING -w -t nat -i br0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+
+	#iptables -I PREROUTING -w -t nat -i sstp0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+	#iptables -I PREROUTING -w -t nat -i sstp0 -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+	#iptables -A PREROUTING -w -t nat -i sstp0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+fi
+
+
 if [ -z "$(iptables-save 2>/dev/null | grep unblocktroj)" ]; then
   ipset create unblocktroj hash:net -exist 2>/dev/null
 	iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblocktroj dst -j REDIRECT --to-port 10829

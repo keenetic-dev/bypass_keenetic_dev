@@ -115,6 +115,37 @@ while read -r line || [ -n "$line" ]; do
   cidr=$(echo "$line" | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}' | cut_local)
 
   if [ -n "$cidr" ]; then
+    ipset -exist add unblockvless "$cidr"
+    continue
+  fi
+
+  range=$(echo "$line" | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}-[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut_local)
+
+  if [ -n "$range" ]; then
+    ipset -exist add unblockvless "$range"
+    continue
+  fi
+
+  addr=$(echo "$line" | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut_local)
+
+  if [ -n "$addr" ]; then
+    ipset -exist add unblockvless "$addr"
+    continue
+  fi
+
+  dig +short "$line" @localhost -p 40500 | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | awk '{system("ipset -exist add unblockvless "$1)}'
+
+done < /opt/etc/unblock/vless.txt
+
+
+while read -r line || [ -n "$line" ]; do
+
+  [ -z "$line" ] && continue
+  [ "${line#?}" = "#" ] && continue
+
+  cidr=$(echo "$line" | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}' | cut_local)
+
+  if [ -n "$cidr" ]; then
     ipset -exist add unblocktroj "$cidr"
     continue
   fi

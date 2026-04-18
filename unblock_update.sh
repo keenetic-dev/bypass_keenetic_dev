@@ -2,6 +2,7 @@
 ipset flush unblocktor
 ipset flush unblocksh
 ipset flush unblockvmess
+ipset flush unblockvless
 ipset flush unblocktroj
 #ipset flush unblockvpn
 
