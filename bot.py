@@ -1590,8 +1590,9 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         for key_name, title, rows, placeholder in protocol_sections:
             safe_value = html.escape(current_keys.get(key_name, ''))
             safe_title = html.escape(title)
-            protocol_cards.append(f'''<section>
-    <h2>{safe_title}</h2>
+            protocol_cards.append(f'''<section class="panel protocol-card">
+        <span class="eyebrow">Ключ подключения</span>
+        <h2>{safe_title}</h2>
     <form method="post" action="/install">
       <input type="hidden" name="type" value="{key_name}">
       <textarea name="key" rows="{rows}" placeholder="{html.escape(placeholder)}" required>{safe_value}</textarea>
@@ -1600,12 +1601,34 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
   </section>''')
         protocol_cards_html = ''.join(protocol_cards)
 
+        command_buttons = [
+            ('install_fork', 'Установить из форка', ''),
+            ('install_original', 'Установить оригинальную версию', ''),
+            ('update', 'Обновить через форк', ''),
+            ('restart_services', 'Перезапустить сервисы', ''),
+            ('dns_on', 'DNS Override ВКЛ', ''),
+            ('dns_off', 'DNS Override ВЫКЛ', ''),
+            ('remove', 'Удалить компоненты', 'danger'),
+            ('reboot', 'Перезагрузить роутер', 'danger'),
+        ]
+        command_buttons_html = ''.join(
+            f'''<form method="post" action="/command">
+            <input type="hidden" name="command" value="{command}">
+            <button type="submit" class="{button_class}">{html.escape(label)}</button>
+        </form>'''
+            for command, label, button_class in command_buttons
+        )
+
         unblock_cards = []
         for entry in unblock_lists:
             safe_name = html.escape(entry['name'])
             safe_label = html.escape(entry['label'])
             safe_content = html.escape(entry['content'])
-            unblock_cards.append(f'''<section>
+            unblock_cards.append(f'''<section class="panel unblock-card">
+        <div class="card-topline">
+            <span class="eyebrow">Список обхода</span>
+            <span class="file-chip">{safe_name}</span>
+        </div>
     <h2>{safe_label}</h2>
     <form method="post" action="/save_unblock_list">
       <input type="hidden" name="list_name" value="{safe_name}">
@@ -1628,60 +1651,84 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
   <title>Установка ключей VPN</title>
     <style>
         :root{{
-            --bg:#111827;
-            --bg-accent:#1b2435;
-            --surface:#1f2937;
-            --surface-soft:#243044;
-            --border:#334155;
-            --text:#e5eefc;
-            --muted:#9fb0c8;
-            --primary:#4f8cff;
-            --primary-hover:#6aa0ff;
-            --success-bg:#123227;
-            --success-border:#2f7d57;
-            --warn-bg:#3a2d14;
-            --warn-border:#ae7b21;
-            --shadow:0 20px 45px rgba(2, 6, 23, 0.28);
+                        --bg:#f3efe6;
+                        --bg-accent:#e7dcc7;
+                        --surface:#fffdf8;
+                        --surface-soft:#f5ede0;
+                        --surface-strong:#efe2cb;
+                        --border:#d7c5aa;
+                        --text:#1f2933;
+                        --muted:#6f7a86;
+                        --primary:#1f7a6a;
+                        --primary-hover:#165f53;
+                        --secondary:#c96f32;
+                        --danger:#a8442f;
+                        --success-bg:#e5f4ea;
+                        --success-border:#8cb79a;
+                        --warn-bg:#fff0d9;
+                        --warn-border:#d6a35b;
+                        --shadow:0 18px 40px rgba(76, 58, 36, 0.12);
         }}
         *{{box-sizing:border-box;}}
         body{{
             margin:0;
-            font-family:Segoe UI,Helvetica,Arial,sans-serif;
+                        font-family:Segoe UI,Helvetica,Arial,sans-serif;
             color:var(--text);
-            background:radial-gradient(circle at top, #22304a 0%, var(--bg) 52%, #0f172a 100%);
-            padding:18px;
+                        background:
+                                radial-gradient(circle at top left, rgba(201,111,50,.18), transparent 34%),
+                                radial-gradient(circle at top right, rgba(31,122,106,.16), transparent 28%),
+                                linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
+                        padding:20px;
         }}
-        .shell{{max-width:1080px;margin:0 auto;}}
-        .hero{{margin-bottom:20px;padding:24px;border:1px solid rgba(148,163,184,.18);border-radius:22px;background:linear-gradient(145deg, rgba(31,41,55,.96), rgba(17,24,39,.92));box-shadow:var(--shadow);}}
-        h1{{margin:0 0 12px;font-size:clamp(28px,5vw,42px);line-height:1.05;letter-spacing:-0.03em;color:#f8fbff;}}
-        h2{{margin:0 0 14px;font-size:20px;color:#f8fbff;}}
-        p{{margin:0 0 10px;line-height:1.55;color:var(--muted);}}
-        .hero strong{{color:#f8fbff;}}
-        .layout{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}}
-        section{{padding:18px;border:1px solid rgba(148,163,184,.16);border-radius:18px;background:linear-gradient(180deg, rgba(31,41,55,.96), rgba(23,33,49,.92));box-shadow:var(--shadow);}}
+                .shell{{max-width:1180px;margin:0 auto;}}
+                .hero{{margin-bottom:20px;padding:28px;border:1px solid var(--border);border-radius:28px;background:linear-gradient(140deg, rgba(255,253,248,.98), rgba(239,226,203,.88));box-shadow:var(--shadow);}}
+                .hero-copy{{max-width:700px;}}
+                .hero-meta{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0;}}
+                .hero-chip{{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:rgba(31,122,106,.08);border:1px solid rgba(31,122,106,.18);font-size:13px;font-weight:700;color:#214f47;}}
+                h1{{margin:0 0 12px;font-size:clamp(30px,5vw,48px);line-height:1.02;letter-spacing:-0.04em;color:#18212a;}}
+                h2{{margin:0 0 14px;font-size:20px;color:#18212a;}}
+                p{{margin:0 0 10px;line-height:1.55;color:var(--muted);}}
+                .hero strong{{color:#18212a;}}
+                .dashboard{{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-bottom:16px;}}
+                .layout{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}}
+                .panel{{padding:18px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg, rgba(255,253,248,.96), rgba(245,237,224,.94));box-shadow:var(--shadow);}}
         form{{display:grid;gap:12px;}}
-        input,textarea,select{{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--border);background:var(--surface-soft);color:var(--text);font-size:16px;outline:none;}}
+                input,textarea,select{{width:100%;padding:13px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface-soft);color:var(--text);font-size:16px;outline:none;}}
+                input:focus,textarea:focus,select:focus{{border-color:rgba(31,122,106,.6);box-shadow:0 0 0 4px rgba(31,122,106,.08);}}
         textarea{{min-height:138px;resize:vertical;}}
-        input::placeholder,textarea::placeholder{{color:#7f93b0;}}
-        button{{padding:13px 16px;border:none;border-radius:12px;background:linear-gradient(135deg, var(--primary), #2f6ae6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:transform .15s ease, filter .15s ease;}}
+                input::placeholder,textarea::placeholder{{color:#8b8f92;}}
+                button{{padding:13px 16px;border:none;border-radius:14px;background:linear-gradient(135deg, var(--primary), #246f61);color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:transform .15s ease, filter .15s ease, box-shadow .15s ease;box-shadow:0 10px 20px rgba(31,122,106,.18);}}
         button:hover{{filter:brightness(1.08);transform:translateY(-1px);}}
+                button.danger{{background:linear-gradient(135deg, var(--danger), #85311f);box-shadow:0 10px 20px rgba(168,68,47,.18);}}
+                .secondary-button{{background:linear-gradient(135deg, var(--secondary), #b85b27);box-shadow:0 10px 20px rgba(201,111,50,.18);}}
         .status-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px;}}
-        .status-card{{padding:14px;border-radius:14px;background:rgba(59,130,246,.08);border:1px solid rgba(96,165,250,.18);}}
-        .status-label{{display:block;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#90a5c4;}}
-        .status-value{{font-size:16px;color:#f8fbff;}}
-        .notice{{padding:16px;border-radius:16px;margin-bottom:18px;}}
-        .notice strong{{display:block;margin-bottom:8px;color:#fff;}}
+                .status-card{{padding:14px;border-radius:18px;background:rgba(31,122,106,.08);border:1px solid rgba(31,122,106,.14);}}
+                .status-label{{display:block;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#68727d;}}
+                .status-value{{font-size:16px;color:#18212a;}}
+                .notice{{padding:16px;border-radius:18px;margin-bottom:18px;}}
+                .notice strong{{display:block;margin-bottom:8px;color:#18212a;}}
         .notice-result{{background:var(--warn-bg);border:1px solid var(--warn-border);}}
         .notice-status{{background:var(--success-bg);border:1px solid var(--success-border);}}
-        .status-note{{margin-top:10px;color:#d6e5fb;}}
-        .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:#f8fbff;}}
+                .status-note{{margin-top:10px;color:#23403f;}}
+                .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:#18212a;}}
+                .eyebrow{{display:inline-block;margin-bottom:10px;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8b6f4a;}}
+                .section-title{{margin:0 0 6px;font-size:24px;color:#18212a;}}
+                .section-subtitle{{margin:0;color:var(--muted);}}
+                .control-form{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start;}}
+                .start-card{{display:flex;flex-direction:column;justify-content:space-between;}}
+                .command-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px;}}
+                .card-topline{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}}
+                .file-chip{{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:rgba(201,111,50,.12);border:1px solid rgba(201,111,50,.2);font-size:12px;font-weight:700;color:#7c4b21;}}
         .wide{{grid-column:1 / -1;}}
         @media (max-width: 760px){{
             body{{padding:12px;}}
-            .hero{{padding:18px;border-radius:18px;}}
+                        .hero{{padding:18px;border-radius:20px;}}
+                        .dashboard{{grid-template-columns:1fr;gap:12px;}}
             .layout{{grid-template-columns:1fr;gap:12px;}}
+                        .control-form{{grid-template-columns:1fr;}}
+                        .command-grid{{grid-template-columns:1fr;}}
             .status-grid{{grid-template-columns:1fr;}}
-            section{{padding:16px;border-radius:16px;}}
+                        .panel{{padding:16px;border-radius:18px;}}
             button,input,textarea,select{{font-size:16px;}}
         }}
     </style>
@@ -1689,78 +1736,71 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
 <body>
     <div class="shell">
     <div class="hero">
-        <h1>Установка ключей VPN</h1>
-        <p>Страница показывает не только состояние процесса, но и реальный статус связи с Telegram API.</p>
-        <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
+                <div class="hero-copy">
+                        <h1>Установка ключей VPN</h1>
+                        <p>Страница показывает не только состояние процесса, но и реальный статус связи с Telegram API.</p>
+                        <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
+                </div>
+                <div class="hero-meta">
+                        <span class="hero-chip">Режим: {html.escape(status['proxy_mode'])}</span>
+                        <span class="hero-chip">Бот: {html.escape(status['state_label'])}</span>
+                        <span class="hero-chip">Веб: 192.168.1.1:8080</span>
+                </div>
     </div>
     {message_block}
     {command_block}
-    <div class="layout">
-    <section class="wide">
-    <h2>Протокол бота</h2>
-    <form method="post" action="/set_proxy">
-      <select name="proxy_type">
-        <option value="none"{' selected' if proxy_mode == 'none' else ''}>Без VPN (по умолчанию)</option>
-        <option value="shadowsocks"{' selected' if proxy_mode == 'shadowsocks' else ''}>Shadowsocks</option>
-        <option value="vmess"{' selected' if proxy_mode == 'vmess' else ''}>Vmess</option>
-        <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless</option>
-        <option value="trojan"{' selected' if proxy_mode == 'trojan' else ''}>Trojan</option>
-      </select>
-      <button type="submit">Использовать для бота</button>
-    </form>
-        <p>Смените режим и затем проверьте блок статуса ниже. Он покажет реальную доступность Telegram API, а не только запуск процесса.</p>
-  </section>
+        <div class="dashboard">
+        <section class="panel">
+            <span class="eyebrow">Управление ботом</span>
+            <h2 class="section-title">Активный протокол</h2>
+            <p class="section-subtitle">Смените режим и сразу проверьте блок статуса. Он показывает реальную доступность Telegram API.</p>
+            <form method="post" action="/set_proxy" class="control-form">
+                <select name="proxy_type">
+                    <option value="none"{' selected' if proxy_mode == 'none' else ''}>Без VPN (по умолчанию)</option>
+                    <option value="shadowsocks"{' selected' if proxy_mode == 'shadowsocks' else ''}>Shadowsocks</option>
+                    <option value="vmess"{' selected' if proxy_mode == 'vmess' else ''}>Vmess</option>
+                    <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless</option>
+                    <option value="trojan"{' selected' if proxy_mode == 'trojan' else ''}>Trojan</option>
+                </select>
+                <button type="submit">Использовать для бота</button>
+            </form>
+        </section>
+        <section class="panel start-card">
+            <div>
+                <span class="eyebrow">Запуск</span>
+                <h2 class="section-title">Быстрый старт</h2>
+                <p class="section-subtitle">После установки ключей можно сразу включить polling бота.</p>
+            </div>
+            <form method="post" action="/start">
+                <button type="submit">Запустить бота</button>
+            </form>
+        </section>
+        </div>
+        <div class="layout">
+        <section class="panel wide">
+            <span class="eyebrow">Диагностика</span>
+            <h2 class="section-title">Статус бота</h2>
+            {status_block}
+            <p>Если процесс поднят, но Telegram API недоступен, бот не сможет отвечать в чате. Проверяйте этот блок после смены ключа или режима.</p>
+        </section>
+        <section class="panel wide">
+            <span class="eyebrow">Ключи и мосты</span>
+            <h2 class="section-title">Подключения по протоколам</h2>
+            <p class="section-subtitle">Храните рабочий ключ в нужной карточке. Текущий режим выбирается отдельно выше.</p>
+        </section>
         {protocol_cards_html}
-    <section class="wide">
-    <h2>Статус бота</h2>
-        {status_block}
-        <p>Если процесс поднят, но Telegram API недоступен, бот не сможет отвечать в чате. Проверяйте этот блок после смены ключа или режима.</p>
-  </section>
-  <section>
-    <h2>Запустить бот</h2>
-    <p>После установки ключей нажмите кнопку, чтобы бот начал работу.</p>
-    <form method="post" action="/start">
-      <button type="submit">Запустить бота</button>
-    </form>
-  </section>
-    <section class="wide">
-        <h2>Команды установки и сервиса</h2>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="install_fork">
-            <button type="submit">Установить из форка</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="install_original">
-            <button type="submit">Установить оригинальную версию</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="update">
-            <button type="submit">Обновить через форк</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="remove">
-            <button type="submit">Удалить компоненты</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="restart_services">
-            <button type="submit">Перезапустить сервисы</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="dns_on">
-            <button type="submit">DNS Override ВКЛ</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="dns_off">
-            <button type="submit">DNS Override ВЫКЛ</button>
-        </form>
-        <form method="post" action="/command">
-            <input type="hidden" name="command" value="reboot">
-            <button type="submit">Перезагрузить роутер</button>
-        </form>
-    </section>
-    <section class="wide">
-        <h2>Списки обхода по протоколам и VPN</h2>
-        <p>Здесь редактируются адреса и домены, которые будут отправляться через соответствующий протокол или VPN-правило.</p>
+        <section class="panel wide">
+                <span class="eyebrow">Сервис роутера</span>
+                <h2 class="section-title">Команды установки и обслуживания</h2>
+                <p class="section-subtitle">Обычные действия и потенциально опасные команды разделены по цвету, чтобы ими было труднее ошибиться.</p>
+                <div class="command-grid">
+                        {command_buttons_html}
+                </div>
+        </section>
+        <section class="panel wide">
+                <span class="eyebrow">Маршрутизация</span>
+                <h2 class="section-title">Списки обхода по протоколам и VPN</h2>
+                <p class="section-subtitle">Здесь редактируются адреса и домены, которые будут отправляться через соответствующий протокол или VPN-правило.</p>
     </section>
     {unblock_lists_block}
     </div>
