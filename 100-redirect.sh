@@ -108,18 +108,15 @@ if [ -z "$(iptables-save 2>/dev/null | grep unblockvmess)" ]; then
 fi
 
 
-if [ -z "$(iptables-save 2>/dev/null | grep unblockvless)" ]; then
-  ipset create unblockvless hash:net -exist 2>/dev/null
+ipset create unblockvless hash:net -exist 2>/dev/null
+if ! iptables -t nat -C PREROUTING -w -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811 2>/dev/null; then
 	iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-	iptables -I PREROUTING -w -t nat -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-
-	#iptables -I PREROUTING -w -t nat -i br0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-	#iptables -I PREROUTING -w -t nat -i br0 -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-	#iptables -A PREROUTING -w -t nat -i br0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-
-	#iptables -I PREROUTING -w -t nat -i sstp0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-	#iptables -I PREROUTING -w -t nat -i sstp0 -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
-	#iptables -A PREROUTING -w -t nat -i sstp0 -p tcp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+fi
+while iptables -t nat -C PREROUTING -w -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811 2>/dev/null; do
+	iptables -t nat -D PREROUTING -w -p udp -m set --match-set unblockvless dst -j REDIRECT --to-port 10811
+done
+if ! iptables -C FORWARD -w -p udp -m set --match-set unblockvless dst --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null; then
+	iptables -I FORWARD -w -p udp -m set --match-set unblockvless dst --dport 443 -j REJECT --reject-with icmp-port-unreachable
 fi
 
 
