@@ -312,13 +312,13 @@ def update_proxy(proxy_type):
     return True, None
 
 
-def check_telegram_api(retries=2, retry_delay=7):
+def check_telegram_api(retries=2, retry_delay=7, connect_timeout=30, read_timeout=45):
     url = f'https://api.telegram.org/bot{token}/getMe'
     proxies = telebot.apihelper.proxy if getattr(telebot.apihelper, 'proxy', None) else None
     last_result = None
     for attempt in range(retries + 1):
         try:
-            response = requests.get(url, timeout=(30, 45), proxies=proxies)
+            response = requests.get(url, timeout=(connect_timeout, read_timeout), proxies=proxies)
             response.raise_for_status()
             data = response.json()
             if data.get('ok'):
@@ -349,6 +349,27 @@ def check_telegram_api(retries=2, retry_delay=7):
             if attempt < retries:
                 time.sleep(retry_delay)
     return last_result
+
+
+def _web_status_snapshot():
+    state_label = 'polling активен' if bot_polling else ('ожидает запуска' if not bot_ready else 'процесс запущен, polling недоступен')
+    socks_details = ''
+    if proxy_mode in ['shadowsocks', 'vmess', 'vless']:
+        port = {
+            'shadowsocks': localportsh,
+            'vmess': localportvmess,
+            'vless': localportvless
+        }.get(proxy_mode)
+        if port:
+            socks_ok = _check_socks5_handshake(port)
+            socks_details = f'Локальный SOCKS {proxy_mode} 127.0.0.1:{port}: {"доступен" if socks_ok else "не отвечает как SOCKS5"}'
+    api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=4, read_timeout=8)
+    return {
+        'state_label': state_label,
+        'proxy_mode': proxy_mode,
+        'api_status': api_status,
+        'socks_details': socks_details
+    }
 
 # список смайлов для меню
 #  ✅ ❌ ♻️ 📃 📆 🔑 📄 ❗ ️⚠️ ⚙️ 📝 📆 🗑 📄️⚠️ 🔰 ❔ ‼️ 📑
@@ -873,27 +894,107 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode('utf-8'))
 
     def _build_form(self, message=''):
+                status = _web_status_snapshot()
         message_block = ''
         if message:
             safe_message = html.escape(message)
-            message_block = f'''<div style="background:#fff9c4;border:1px solid #f0c14b;padding:16px;border-radius:8px;margin-bottom:18px;">
-  <strong>Результат:</strong>
-  <p>{safe_message}</p>
+                        message_block = f'''<div class="notice notice-result">
+    <strong>Результат</strong>
+    <p>{safe_message}</p>
 </div>'''
-        status_block = f'<p>Статус бота: <strong>{"polling" if bot_polling else "остановлен"}</strong></p>'
+                socks_block = ''
+                if status['socks_details']:
+                        socks_block = f'<p class="status-note">{html.escape(status["socks_details"])}</p>'
+                status_block = f'''<div class="status-grid">
+    <div class="status-card">
+        <span class="status-label">Процесс бота</span>
+        <strong class="status-value">{html.escape(status['state_label'])}</strong>
+    </div>
+    <div class="status-card">
+        <span class="status-label">Текущий режим</span>
+        <strong class="status-value">{html.escape(status['proxy_mode'])}</strong>
+    </div>
+</div>
+<div class="notice notice-status">
+    <strong>Связь с Telegram API</strong>
+    <p>{html.escape(status['api_status'])}</p>
+    {socks_block}
+</div>'''
         return f'''<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Установка ключей VPN</title>
-  <style>body{{font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f5f5;}}h1{{color:#333;}}form{{background:#fff;padding:16px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);margin-bottom:20px;}}textarea,input{{width:100%;padding:10px;margin:8px 0;border:1px solid #ccc;border-radius:4px;}}button{{background:#007bff;color:#fff;padding:10px 16px;border:none;border-radius:4px;cursor:pointer;}}button:hover{{background:#0056b3;}}section{{margin-bottom:24px;}}</style>
+    <style>
+        :root{{
+            --bg:#111827;
+            --bg-accent:#1b2435;
+            --surface:#1f2937;
+            --surface-soft:#243044;
+            --border:#334155;
+            --text:#e5eefc;
+            --muted:#9fb0c8;
+            --primary:#4f8cff;
+            --primary-hover:#6aa0ff;
+            --success-bg:#123227;
+            --success-border:#2f7d57;
+            --warn-bg:#3a2d14;
+            --warn-border:#ae7b21;
+            --shadow:0 20px 45px rgba(2, 6, 23, 0.28);
+        }}
+        *{{box-sizing:border-box;}}
+        body{{
+            margin:0;
+            font-family:Segoe UI,Helvetica,Arial,sans-serif;
+            color:var(--text);
+            background:radial-gradient(circle at top, #22304a 0%, var(--bg) 52%, #0f172a 100%);
+            padding:18px;
+        }}
+        .shell{{max-width:1080px;margin:0 auto;}}
+        .hero{{margin-bottom:20px;padding:24px;border:1px solid rgba(148,163,184,.18);border-radius:22px;background:linear-gradient(145deg, rgba(31,41,55,.96), rgba(17,24,39,.92));box-shadow:var(--shadow);}}
+        h1{{margin:0 0 12px;font-size:clamp(28px,5vw,42px);line-height:1.05;letter-spacing:-0.03em;color:#f8fbff;}}
+        h2{{margin:0 0 14px;font-size:20px;color:#f8fbff;}}
+        p{{margin:0 0 10px;line-height:1.55;color:var(--muted);}}
+        .hero strong{{color:#f8fbff;}}
+        .layout{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}}
+        section{{padding:18px;border:1px solid rgba(148,163,184,.16);border-radius:18px;background:linear-gradient(180deg, rgba(31,41,55,.96), rgba(23,33,49,.92));box-shadow:var(--shadow);}}
+        form{{display:grid;gap:12px;}}
+        input,textarea,select{{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--border);background:var(--surface-soft);color:var(--text);font-size:16px;outline:none;}}
+        textarea{{min-height:138px;resize:vertical;}}
+        input::placeholder,textarea::placeholder{{color:#7f93b0;}}
+        button{{padding:13px 16px;border:none;border-radius:12px;background:linear-gradient(135deg, var(--primary), #2f6ae6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:transform .15s ease, filter .15s ease;}}
+        button:hover{{filter:brightness(1.08);transform:translateY(-1px);}}
+        .status-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px;}}
+        .status-card{{padding:14px;border-radius:14px;background:rgba(59,130,246,.08);border:1px solid rgba(96,165,250,.18);}}
+        .status-label{{display:block;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#90a5c4;}}
+        .status-value{{font-size:16px;color:#f8fbff;}}
+        .notice{{padding:16px;border-radius:16px;margin-bottom:18px;}}
+        .notice strong{{display:block;margin-bottom:8px;color:#fff;}}
+        .notice-result{{background:var(--warn-bg);border:1px solid var(--warn-border);}}
+        .notice-status{{background:var(--success-bg);border:1px solid var(--success-border);}}
+        .status-note{{margin-top:10px;color:#d6e5fb;}}
+        .wide{{grid-column:1 / -1;}}
+        @media (max-width: 760px){{
+            body{{padding:12px;}}
+            .hero{{padding:18px;border-radius:18px;}}
+            .layout{{grid-template-columns:1fr;gap:12px;}}
+            .status-grid{{grid-template-columns:1fr;}}
+            section{{padding:16px;border-radius:16px;}}
+            button,input,textarea,select{{font-size:16px;}}
+        }}
+    </style>
 </head>
 <body>
-  <h1>Установка ключей VPN через браузер</h1>
-  <p>Выберите тип ключа и вставьте содержимое в форму ниже.</p>
-  <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
-  {message_block}
-  <section>
+    <div class="shell">
+    <div class="hero">
+        <h1>Установка ключей VPN</h1>
+        <p>Страница показывает не только состояние процесса, но и реальный статус связи с Telegram API.</p>
+        <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
+    </div>
+    {message_block}
+    <div class="layout">
+    <section class="wide">
     <h2>Протокол бота</h2>
     <form method="post" action="/set_proxy">
       <select name="proxy_type">
@@ -905,9 +1006,9 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
       </select>
       <button type="submit">Использовать для бота</button>
     </form>
-    <p>Текущий режим: <strong>{proxy_mode}</strong></p>
+        <p>Смените режим и затем проверьте блок статуса ниже. Он покажет реальную доступность Telegram API, а не только запуск процесса.</p>
   </section>
-  <section>
+    <section>
     <h2>Shadowsocks</h2>
     <form method="post" action="/install">
       <input type="hidden" name="type" value="shadowsocks">
@@ -939,12 +1040,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
       <button type="submit">Установить Trojan</button>
     </form>
   </section>
-  <section>
+    <section class="wide">
     <h2>Статус бота</h2>
-    <div style="background:#eef2ff;border:1px solid #99a9ff;padding:12px;border-radius:8px;margin-bottom:18px;">
-      {status_block}
-      <p>После нажатия кнопки «Запустить бота» он будет начинать polling Telegram API.</p>
-    </div>
+        {status_block}
+        <p>Если процесс поднят, но Telegram API недоступен, бот не сможет отвечать в чате. Проверяйте этот блок после смены ключа или режима.</p>
   </section>
   <section>
     <h2>Tor вручную</h2>
@@ -961,6 +1060,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
       <button type="submit">Запустить бота</button>
     </form>
   </section>
+    </div>
+    </div>
 </body>
 </html>'''
 
