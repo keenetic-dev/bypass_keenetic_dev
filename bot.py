@@ -1600,13 +1600,15 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
 </html>'''
 
     def do_GET(self):
-        if self.path in ['/', '/index.html']:
+        path = urlparse(self.path).path
+        if path in ['/', '/index.html', '/command']:
             self._send_html(self._build_form())
         else:
             self._send_html('<h1>404 Not Found</h1>', status=404)
 
     def do_POST(self):
-        if self.path == '/set_proxy':
+        path = urlparse(self.path).path
+        if path == '/set_proxy':
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length).decode('utf-8')
             data = parse_qs(body)
@@ -1620,7 +1622,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_html(self._build_form(result))
             return
 
-        if self.path == '/start':
+        if path == '/start':
             global bot_ready
             bot_ready = True
             _save_bot_autostart(True)
@@ -1629,7 +1631,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_html(self._build_form(result))
             return
 
-        if self.path == '/command':
+        if path == '/command':
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length).decode('utf-8')
             data = parse_qs(body)
@@ -1638,7 +1640,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_html(self._build_form(result))
             return
 
-        if self.path != '/install':
+        if path != '/install':
             self._send_html('<h1>404 Not Found</h1>', status=404)
             return
         length = int(self.headers.get('Content-Length', 0))
