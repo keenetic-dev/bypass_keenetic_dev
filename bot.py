@@ -1531,9 +1531,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
   <strong>{html.escape(command_title)}: {html.escape(command_state['label'])}</strong>
   <pre class="log-output">{html.escape(command_text)}</pre>
 </div>'''
-        socks_block = ''
-        if status['socks_details']:
-            socks_block = f'<p class="status-note">{html.escape(status["socks_details"])}' + '</p>'
+                socks_block = ''
+                if status['socks_details']:
+                        socks_block = f'<p class="status-note">{html.escape(status["socks_details"])}' + '</p>'
+
                 unblock_cards = []
                 for entry in unblock_lists:
                         safe_name = html.escape(entry['name'])
