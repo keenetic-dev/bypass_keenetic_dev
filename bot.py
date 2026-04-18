@@ -234,6 +234,123 @@ def _ensure_legacy_bot_paths():
     return 'Подготовка legacy-путей: ' + ', '.join(notes)
 
 
+def _chunk_text(text, limit=3500):
+    chunks = []
+    current = []
+    current_len = 0
+    for line in text.splitlines():
+        extra = len(line) + 1
+        if current and current_len + extra > limit:
+            chunks.append('\n'.join(current))
+            current = [line]
+            current_len = extra
+        else:
+            current.append(line)
+            current_len += extra
+    if current:
+        chunks.append('\n'.join(current))
+    return chunks or ['']
+
+
+def _send_telegram_chunks(chat_id, text, reply_markup=None):
+    for chunk in _chunk_text(text):
+        bot.send_message(chat_id, chunk, reply_markup=reply_markup)
+
+
+def _download_repo_script(repo_owner, repo_name):
+    url = f'https://raw.githubusercontent.com/{repo_owner}/{repo_name}/main/script.sh'
+    response = requests.get(
+        url,
+        params={'ts': str(int(time.time()))},
+        headers={'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
+        timeout=30,
+    )
+    response.raise_for_status()
+    script_text = response.text
+    if '#!/bin/sh' not in script_text:
+        raise ValueError('GitHub вернул некорректный script.sh')
+    with open('/opt/root/script.sh', 'w', encoding='utf-8') as file:
+        file.write(script_text)
+    os.chmod('/opt/root/script.sh', stat.S_IRWXU)
+    return url, script_text
+
+
+def _run_script_action(action, repo_owner=None, repo_name=None):
+    logs = [_prepare_entware_dns(), _ensure_legacy_bot_paths()]
+    if repo_owner and repo_name:
+        url, script_text = _download_repo_script(repo_owner, repo_name)
+        logs.append(f'Скрипт загружен из {url}')
+        if repo_owner == fork_repo_owner and 'BOT_CONFIG_PATH' not in script_text:
+            logs.append('⚠️ GitHub отдал старую версию script.sh, но legacy-пути уже подготовлены на роутере.')
+
+    process = subprocess.Popen(
+        ['/bin/sh', '/opt/root/script.sh', action],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    for line in process.stdout:
+        clean_line = line.strip()
+        if clean_line:
+            logs.append(clean_line)
+    return_code = process.wait()
+    if return_code != 0:
+        logs.append(f'Команда завершилась с кодом {return_code}.')
+    return return_code, '\n'.join(logs)
+
+
+def _restart_router_services():
+    commands = [
+        '/opt/etc/init.d/S56dnsmasq restart',
+        '/opt/etc/init.d/S22shadowsocks restart',
+        CORE_PROXY_SERVICE_SCRIPT + ' restart',
+        '/opt/etc/init.d/S22trojan restart',
+        '/opt/etc/init.d/S35tor restart',
+    ]
+    for command in commands:
+        os.system(command)
+    _invalidate_web_status_cache()
+    return '✅ Сервисы перезагружены.'
+
+
+def _set_dns_override(enabled):
+    if enabled:
+        os.system("ndmc -c 'opkg dns-override'")
+        time.sleep(2)
+        os.system("ndmc -c 'system configuration save'")
+        return '✅ DNS Override включен. Для применения роутер будет перезагружен.'
+    os.system("ndmc -c 'no opkg dns-override'")
+    time.sleep(2)
+    os.system("ndmc -c 'system configuration save'")
+    return '✅ DNS Override выключен. Для применения роутер будет перезагружен.'
+
+
+def _run_web_command(command):
+    if command == 'install_original':
+        _, output = _run_script_action('-install', 'tas-unn', 'bypass_keenetic')
+        return output
+    if command == 'install_fork':
+        _, output = _run_script_action('-install', fork_repo_owner, fork_repo_name)
+        return output
+    if command == 'update':
+        _, output = _run_script_action('-update', fork_repo_owner, fork_repo_name)
+        return output
+    if command == 'remove':
+        _, output = _run_script_action('-remove', fork_repo_owner, fork_repo_name)
+        return output
+    if command == 'restart_services':
+        return _restart_router_services()
+    if command == 'dns_on':
+        return _set_dns_override(True)
+    if command == 'dns_off':
+        return _set_dns_override(False)
+    if command == 'reboot':
+        os.system('ndmc -c system reboot')
+        return '🔄 Роутер перезагружается. Это займёт около 2 минут.'
+    return 'Команда не распознана.'
+
+
 def _load_bot_autostart():
     try:
         with open(BOT_AUTOSTART_FILE, 'r', encoding='utf-8') as file:
@@ -807,16 +924,12 @@ def bot_message(message):
 
             if message.text == '/update':
                 bot.send_message(message.chat.id, 'Устанавливаются обновления, подождите!', reply_markup=service)
-                bot.send_message(message.chat.id, _prepare_entware_dns(), reply_markup=service)
-                bot.send_message(message.chat.id, _ensure_legacy_bot_paths(), reply_markup=service)
-                os.system("curl -s -o /opt/root/script.sh " + _raw_github_url('script.sh'))
-                os.chmod(r"/opt/root/script.sh", 0o0755)
-                os.chmod('/opt/root/script.sh', stat.S_IRWXU)
-
-                update = subprocess.Popen(['/opt/root/script.sh', '-update'], stdout=subprocess.PIPE)
-                for line in update.stdout:
-                    results_update = line.decode().strip()
-                    bot.send_message(message.chat.id, str(results_update), reply_markup=service)
+                return_code, output = _run_script_action('-update', fork_repo_owner, fork_repo_name)
+                _send_telegram_chunks(message.chat.id, output, reply_markup=service)
+                if return_code == 0:
+                    bot.send_message(message.chat.id, '✅ Обновление завершено.', reply_markup=service)
+                else:
+                    bot.send_message(message.chat.id, '⚠️ Обновление завершилось с ошибкой. Полный лог отправлен выше.', reply_markup=service)
                 return
 
             if message.text == '🔙 Назад' or message.text == "Назад":
@@ -1108,21 +1221,19 @@ def bot_message(message):
             if message.text == "Оригинальная версия" or message.text == fork_button_label:
                 if message.text == "Оригинальная версия":
                     repo = "tas-unn"
+                    repo_name = 'bypass_keenetic'
                 else:
                     repo = fork_repo_owner
+                    repo_name = fork_repo_name
 
-                bot.send_message(message.chat.id, _prepare_entware_dns(), reply_markup=main)
-                bot.send_message(message.chat.id, _ensure_legacy_bot_paths(), reply_markup=main)
-                url = "https://raw.githubusercontent.com/{0}/{1}/main/script.sh?ts={2}".format(repo, fork_repo_name, int(time.time()))
-                os.system("curl -s -o /opt/root/script.sh " + url + "")
-                os.chmod(r"/opt/root/script.sh", 0o0755)
-                os.chmod('/opt/root/script.sh', stat.S_IRWXU)
-                #os.system("sed -i 's/znetworkx/" + repo + "/g' /opt/root/script.sh")
+                return_code, output = _run_script_action('-install', repo, repo_name)
+                _send_telegram_chunks(message.chat.id, output, reply_markup=main)
 
-                install = subprocess.Popen(['/opt/root/script.sh', '-install'], stdout=subprocess.PIPE)
-                for line in install.stdout:
-                    results_install = line.decode().strip()
-                    bot.send_message(message.chat.id, str(results_install), reply_markup=main)
+                if return_code != 0:
+                    bot.send_message(message.chat.id,
+                                     '⚠️ Установка завершилась с ошибкой. Полный лог отправлен выше.',
+                                     reply_markup=main)
+                    return
 
                 bot.send_message(message.chat.id,
                                  "Установка завершена. Теперь нужно немного настроить роутер и перейти к "
@@ -1142,14 +1253,12 @@ def bot_message(message):
                 return
 
             if message.text == '⚠️ Удаление':
-                os.system("curl -s -o /opt/root/script.sh " + _raw_github_url('script.sh'))
-                os.chmod(r"/opt/root/script.sh", 0o0755)
-                os.chmod('/opt/root/script.sh', stat.S_IRWXU)
-
-                remove = subprocess.Popen(['/opt/root/script.sh', '-remove'], stdout=subprocess.PIPE)
-                for line in remove.stdout:
-                    results_remove = line.decode().strip()
-                    bot.send_message(message.chat.id, str(results_remove), reply_markup=service)
+                return_code, output = _run_script_action('-remove', fork_repo_owner, fork_repo_name)
+                _send_telegram_chunks(message.chat.id, output, reply_markup=service)
+                if return_code == 0:
+                    bot.send_message(message.chat.id, '✅ Удаление завершено.', reply_markup=service)
+                else:
+                    bot.send_message(message.chat.id, '⚠️ Удаление завершилось с ошибкой. Полный лог отправлен выше.', reply_markup=service)
                 return
 
             if message.text == "📝 Списки обхода":
@@ -1208,11 +1317,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     def _build_form(self, message=''):
         status = _web_status_snapshot()
         message_block = ''
-        if message:
+          if message:
             safe_message = html.escape(message)
             message_block = f'''<div class="notice notice-result">
   <strong>Результат</strong>
-  <p>{safe_message}</p>
+      <pre class="log-output">{safe_message}</pre>
 </div>'''
         socks_block = ''
         if status['socks_details']:
@@ -1286,6 +1395,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         .notice-result{{background:var(--warn-bg);border:1px solid var(--warn-border);}}
         .notice-status{{background:var(--success-bg);border:1px solid var(--success-border);}}
         .status-note{{margin-top:10px;color:#d6e5fb;}}
+        .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:#f8fbff;}}
         .wide{{grid-column:1 / -1;}}
         @media (max-width: 760px){{
             body{{padding:12px;}}
@@ -1372,6 +1482,41 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
       <button type="submit">Запустить бота</button>
     </form>
   </section>
+    <section class="wide">
+        <h2>Команды установки и сервиса</h2>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="install_fork">
+            <button type="submit">Установить из форка</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="install_original">
+            <button type="submit">Установить оригинальную версию</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="update">
+            <button type="submit">Обновить через форк</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="remove">
+            <button type="submit">Удалить компоненты</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="restart_services">
+            <button type="submit">Перезапустить сервисы</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="dns_on">
+            <button type="submit">DNS Override ВКЛ</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="dns_off">
+            <button type="submit">DNS Override ВЫКЛ</button>
+        </form>
+        <form method="post" action="/command">
+            <input type="hidden" name="command" value="reboot">
+            <button type="submit">Перезагрузить роутер</button>
+        </form>
+    </section>
     </div>
     </div>
 </body>
@@ -1404,6 +1549,20 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             _save_bot_autostart(True)
             _invalidate_web_status_cache()
             result = 'Бот запущен. Теперь бот начал polling Telegram API.'
+            self._send_html(self._build_form(result))
+            return
+
+        if self.path == '/command':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length).decode('utf-8')
+            data = parse_qs(body)
+            command = data.get('command', [''])[0]
+            try:
+                result = _run_web_command(command)
+            except Exception as exc:
+                result = f'Ошибка выполнения команды: {exc}'
+            else:
+                _invalidate_web_status_cache()
             self._send_html(self._build_form(result))
             return
 
