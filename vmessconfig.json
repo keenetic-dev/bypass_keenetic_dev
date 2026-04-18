@@ -7,11 +7,12 @@
     "inbounds": [
         {
             "port": 10810,
-            "listen": "::",
-            "protocol": "dokodemo-door",
+            "listen": "127.0.0.1",
+            "protocol": "socks",
             "settings": {
-                "network": "tcp",
-                "followRedirect": true
+                "auth": "noauth",
+                "udp": false,
+                "userLevel": 8
             }
         }
     ],

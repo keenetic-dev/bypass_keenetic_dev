@@ -309,7 +309,7 @@ def check_telegram_api():
     url = f'https://api.telegram.org/bot{token}/getMe'
     proxies = telebot.apihelper.proxy if getattr(telebot.apihelper, 'proxy', None) else None
     try:
-        response = requests.get(url, timeout=(5, 10), proxies=proxies)
+        response = requests.get(url, timeout=(30, 45), proxies=proxies)
         response.raise_for_status()
         data = response.json()
         if data.get('ok'):
@@ -1500,7 +1500,7 @@ start_http_server()
 wait_for_bot_start()
 try:
     bot_polling = True
-    bot.infinity_polling()
+    bot.infinity_polling(timeout=60, long_polling_timeout=50)
 except Exception as err:
     bot_polling = False
     fl = open("/opt/etc/error.log", "w")
