@@ -1569,17 +1569,8 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
             }
         elif security == 'reality':
             stream_settings['security'] = 'reality'
-            server_names = []
-            for name in [vless_data.get('sni'), vless_data.get('host'), vless_data.get('serviceName'), vless_data.get('address')]:
-                if name and name not in server_names:
-                    server_names.append(name)
-            if not server_names:
-                server_names = [vless_data.get('address', '')]
             stream_settings['realitySettings'] = {
-                'show': False,
-                'serverNames': server_names,
-                'dest': f"{vless_data.get('address', vless_data.get('host', ''))}:{vless_data.get('port', 443)}",
-                'xver': 0,
+                'serverName': vless_data.get('sni', '') or vless_data.get('host', '') or vless_data.get('address', ''),
                 'publicKey': vless_data.get('publicKey', ''),
                 'shortId': vless_data.get('shortId', ''),
                 'fingerprint': vless_data.get('fingerprint', 'chrome'),
