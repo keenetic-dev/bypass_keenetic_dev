@@ -30,13 +30,15 @@ ensure_entware_dns() {
     return 0
   fi
 
-  echo "Локальный DNS не резолвит bin.entware.net, добавляем внешние DNS для Entware"
-  if ! grep -q '^nameserver 8.8.8.8$' /etc/resolv.conf 2>/dev/null; then
-    printf 'nameserver 8.8.8.8\n' >> /etc/resolv.conf
-  fi
-  if ! grep -q '^nameserver 1.1.1.1$' /etc/resolv.conf 2>/dev/null; then
-    printf 'nameserver 1.1.1.1\n' >> /etc/resolv.conf
-  fi
+  echo "Локальный DNS не резолвит bin.entware.net, перестраиваем /etc/resolv.conf для Entware"
+  tmp_resolv="/tmp/resolv.entware.$$"
+  {
+    printf 'nameserver 8.8.8.8\n'
+    printf 'nameserver 1.1.1.1\n'
+    grep -v '^[[:space:]]*nameserver[[:space:]]' /etc/resolv.conf 2>/dev/null || true
+  } > "$tmp_resolv"
+  cat "$tmp_resolv" > /etc/resolv.conf
+  rm -f "$tmp_resolv"
 }
 
 if [ "$1" = "-remove" ]; then

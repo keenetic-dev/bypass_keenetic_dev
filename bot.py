@@ -163,20 +163,20 @@ def _prepare_entware_dns():
 
     try:
         resolv_conf = '/etc/resolv.conf'
-        existing = ''
+        preserved_lines = []
         if os.path.exists(resolv_conf):
             with open(resolv_conf, 'r', encoding='utf-8', errors='ignore') as file:
-                existing = file.read()
-        additions = []
-        for nameserver in ['8.8.8.8', '1.1.1.1']:
-            entry = f'nameserver {nameserver}'
-            if entry not in existing:
-                additions.append(entry)
-        if additions:
-            with open(resolv_conf, 'a', encoding='utf-8') as file:
-                separator = '' if not existing or existing.endswith('\n') else '\n'
-                file.write(separator + '\n'.join(additions) + '\n')
-            notes.append('внешние DNS добавлены в /etc/resolv.conf')
+                preserved_lines = [
+                    line.rstrip('\n')
+                    for line in file
+                    if line.strip() and not line.lstrip().startswith('nameserver')
+                ]
+        with open(resolv_conf, 'w', encoding='utf-8') as file:
+            file.write('nameserver 8.8.8.8\n')
+            file.write('nameserver 1.1.1.1\n')
+            if preserved_lines:
+                file.write('\n'.join(preserved_lines) + '\n')
+        notes.append('внешние DNS записаны первыми в /etc/resolv.conf')
     except Exception:
         notes.append('не удалось обновить /etc/resolv.conf')
 
