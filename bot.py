@@ -1651,23 +1651,42 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
   <title>Установка ключей VPN</title>
     <style>
         :root{{
-                        --bg:#f3efe6;
-                        --bg-accent:#e7dcc7;
-                        --surface:#fffdf8;
-                        --surface-soft:#f5ede0;
-                        --surface-strong:#efe2cb;
-                        --border:#d7c5aa;
-                        --text:#1f2933;
-                        --muted:#6f7a86;
-                        --primary:#1f7a6a;
-                        --primary-hover:#165f53;
-                        --secondary:#c96f32;
-                        --danger:#a8442f;
-                        --success-bg:#e5f4ea;
-                        --success-border:#8cb79a;
-                        --warn-bg:#fff0d9;
-                        --warn-border:#d6a35b;
-                        --shadow:0 18px 40px rgba(76, 58, 36, 0.12);
+            --bg:#12161d;
+            --bg-accent:#1a2330;
+            --surface:#171e28;
+            --surface-soft:#202a38;
+            --surface-strong:#263243;
+            --border:#334155;
+            --text:#edf3ff;
+            --muted:#9fb0c8;
+            --primary:#4f8cff;
+            --primary-hover:#6aa0ff;
+            --secondary:#d78644;
+            --danger:#c95a47;
+            --success-bg:#163326;
+            --success-border:#2d7650;
+            --warn-bg:#3e2e16;
+            --warn-border:#b78332;
+            --shadow:0 18px 40px rgba(2, 6, 23, 0.34);
+        }}
+        [data-theme="light"]{{
+            --bg:#f3efe6;
+            --bg-accent:#e7dcc7;
+            --surface:#fffdf8;
+            --surface-soft:#f5ede0;
+            --surface-strong:#efe2cb;
+            --border:#d7c5aa;
+            --text:#1f2933;
+            --muted:#6f7a86;
+            --primary:#1f7a6a;
+            --primary-hover:#165f53;
+            --secondary:#c96f32;
+            --danger:#a8442f;
+            --success-bg:#e5f4ea;
+            --success-border:#8cb79a;
+            --warn-bg:#fff0d9;
+            --warn-border:#d6a35b;
+            --shadow:0 18px 40px rgba(76, 58, 36, 0.12);
         }}
         *{{box-sizing:border-box;}}
         body{{
@@ -1675,23 +1694,34 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                         font-family:Segoe UI,Helvetica,Arial,sans-serif;
             color:var(--text);
                         background:
-                                radial-gradient(circle at top left, rgba(201,111,50,.18), transparent 34%),
-                                radial-gradient(circle at top right, rgba(31,122,106,.16), transparent 28%),
-                                linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
+                radial-gradient(circle at top left, rgba(215,134,68,.16), transparent 34%),
+                radial-gradient(circle at top right, rgba(79,140,255,.16), transparent 28%),
+                linear-gradient(180deg, #0f141c 0%, var(--bg) 100%);
                         padding:20px;
         }}
+        [data-theme="light"] body{{
+            background:
+                radial-gradient(circle at top left, rgba(201,111,50,.18), transparent 34%),
+                radial-gradient(circle at top right, rgba(31,122,106,.16), transparent 28%),
+                linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
+        }}
                 .shell{{max-width:1180px;margin:0 auto;}}
-                .hero{{margin-bottom:20px;padding:28px;border:1px solid var(--border);border-radius:28px;background:linear-gradient(140deg, rgba(255,253,248,.98), rgba(239,226,203,.88));box-shadow:var(--shadow);}}
+        .hero{{margin-bottom:20px;padding:28px;border:1px solid var(--border);border-radius:28px;background:linear-gradient(140deg, rgba(23,30,40,.98), rgba(32,42,56,.9));box-shadow:var(--shadow);}}
+        [data-theme="light"] .hero{{background:linear-gradient(140deg, rgba(255,253,248,.98), rgba(239,226,203,.88));}}
                 .hero-copy{{max-width:700px;}}
-                .hero-meta{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0;}}
-                .hero-chip{{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:rgba(31,122,106,.08);border:1px solid rgba(31,122,106,.18);font-size:13px;font-weight:700;color:#214f47;}}
-                h1{{margin:0 0 12px;font-size:clamp(30px,5vw,48px);line-height:1.02;letter-spacing:-0.04em;color:#18212a;}}
-                h2{{margin:0 0 14px;font-size:20px;color:#18212a;}}
+        .hero-row{{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}}
+        .hero-meta{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0;}}
+        .hero-chip{{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:rgba(79,140,255,.08);border:1px solid rgba(96,165,250,.18);font-size:13px;font-weight:700;color:var(--text);}}
+        .theme-toggle{{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;box-shadow:none;white-space:nowrap;}}
+        .theme-toggle:hover{{filter:none;transform:none;background:rgba(255,255,255,.06);}}
+        h1{{margin:0 0 12px;font-size:clamp(30px,5vw,48px);line-height:1.02;letter-spacing:-0.04em;color:var(--text);}}
+        h2{{margin:0 0 14px;font-size:20px;color:var(--text);}}
                 p{{margin:0 0 10px;line-height:1.55;color:var(--muted);}}
-                .hero strong{{color:#18212a;}}
+        .hero strong{{color:var(--text);}}
                 .dashboard{{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-bottom:16px;}}
                 .layout{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}}
-                .panel{{padding:18px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg, rgba(255,253,248,.96), rgba(245,237,224,.94));box-shadow:var(--shadow);}}
+        .panel{{padding:18px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg, rgba(23,30,40,.96), rgba(32,42,56,.94));box-shadow:var(--shadow);}}
+        [data-theme="light"] .panel{{background:linear-gradient(180deg, rgba(255,253,248,.96), rgba(245,237,224,.94));}}
         form{{display:grid;gap:12px;}}
                 input,textarea,select{{width:100%;padding:13px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface-soft);color:var(--text);font-size:16px;outline:none;}}
                 input:focus,textarea:focus,select:focus{{border-color:rgba(31,122,106,.6);box-shadow:0 0 0 4px rgba(31,122,106,.08);}}
@@ -1702,17 +1732,17 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 button.danger{{background:linear-gradient(135deg, var(--danger), #85311f);box-shadow:0 10px 20px rgba(168,68,47,.18);}}
                 .secondary-button{{background:linear-gradient(135deg, var(--secondary), #b85b27);box-shadow:0 10px 20px rgba(201,111,50,.18);}}
         .status-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px;}}
-                .status-card{{padding:14px;border-radius:18px;background:rgba(31,122,106,.08);border:1px solid rgba(31,122,106,.14);}}
-                .status-label{{display:block;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#68727d;}}
-                .status-value{{font-size:16px;color:#18212a;}}
+                .status-card{{padding:14px;border-radius:18px;background:rgba(79,140,255,.08);border:1px solid rgba(96,165,250,.18);}}
+                .status-label{{display:block;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#90a5c4;}}
+                .status-value{{font-size:16px;color:var(--text);}}
                 .notice{{padding:16px;border-radius:18px;margin-bottom:18px;}}
-                .notice strong{{display:block;margin-bottom:8px;color:#18212a;}}
+                .notice strong{{display:block;margin-bottom:8px;color:var(--text);}}
         .notice-result{{background:var(--warn-bg);border:1px solid var(--warn-border);}}
         .notice-status{{background:var(--success-bg);border:1px solid var(--success-border);}}
-                .status-note{{margin-top:10px;color:#23403f;}}
-                .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:#18212a;}}
+                .status-note{{margin-top:10px;color:var(--text);}}
+                .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:var(--text);}}
                 .eyebrow{{display:inline-block;margin-bottom:10px;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8b6f4a;}}
-                .section-title{{margin:0 0 6px;font-size:24px;color:#18212a;}}
+                .section-title{{margin:0 0 6px;font-size:24px;color:var(--text);}}
                 .section-subtitle{{margin:0;color:var(--muted);}}
                 .control-form{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start;}}
                 .start-card{{display:flex;flex-direction:column;justify-content:space-between;}}
@@ -1723,6 +1753,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         @media (max-width: 760px){{
             body{{padding:12px;}}
                         .hero{{padding:18px;border-radius:20px;}}
+            .hero-row{{flex-direction:column;align-items:stretch;}}
                         .dashboard{{grid-template-columns:1fr;gap:12px;}}
             .layout{{grid-template-columns:1fr;gap:12px;}}
                         .control-form{{grid-template-columns:1fr;}}
@@ -1732,15 +1763,47 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             button,input,textarea,select{{font-size:16px;}}
         }}
     </style>
+    <script>
+        (function() {{
+            const savedTheme = localStorage.getItem('router-theme');
+            const theme = savedTheme === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        }})();
+
+        function toggleTheme() {{
+            const root = document.documentElement;
+            const nextTheme = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+            root.setAttribute('data-theme', nextTheme);
+            localStorage.setItem('router-theme', nextTheme);
+            const label = document.getElementById('theme-toggle-label');
+            if (label) {{
+                label.textContent = nextTheme === 'light' ? 'Светлая тема' : 'Темная тема';
+            }}
+        }}
+
+        document.addEventListener('DOMContentLoaded', function() {{
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const label = document.getElementById('theme-toggle-label');
+            if (label) {{
+                label.textContent = currentTheme === 'light' ? 'Светлая тема' : 'Темная тема';
+            }}
+        }});
+    </script>
 </head>
 <body>
     <div class="shell">
     <div class="hero">
+        <div class="hero-row">
                 <div class="hero-copy">
                         <h1>Установка ключей VPN</h1>
                         <p>Страница показывает не только состояние процесса, но и реальный статус связи с Telegram API.</p>
                         <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
                 </div>
+        <button type="button" class="theme-toggle" onclick="toggleTheme()">
+            <span>Тема</span>
+            <span id="theme-toggle-label">Темная тема</span>
+        </button>
+        </div>
                 <div class="hero-meta">
                         <span class="hero-chip">Режим: {html.escape(status['proxy_mode'])}</span>
                         <span class="hero-chip">Бот: {html.escape(status['state_label'])}</span>
