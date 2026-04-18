@@ -12,16 +12,26 @@
 
 repo="andruwko73"
 
+BOT_CONFIG_PATH="/opt/etc/bot_config.py"
+BOT_MAIN_PATH="/opt/etc/bot.py"
+if [ -f "/opt/etc/bot/bot_config.py" ]; then
+  BOT_CONFIG_PATH="/opt/etc/bot/bot_config.py"
+fi
+if [ -d "/opt/etc/bot" ] || grep -q '/opt/etc/bot/main.py' /opt/etc/init.d/S99telegram_bot 2>/dev/null; then
+  BOT_MAIN_PATH="/opt/etc/bot/main.py"
+fi
+BOT_RUNTIME_DIR=$(dirname "$BOT_MAIN_PATH")
+
 # ip роутера
 lanip=$(ip -4 addr show br0 | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
 ssredir="ss-redir"
-localportsh=$(grep "localportsh" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
-#dnsporttor=$(grep "dnsporttor" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
-localporttor=$(grep "localporttor" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
-localportvmess=$(grep "localportvmess" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
-localporttrojan=$(grep "localporttrojan" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
-dnsovertlsport=$(grep "dnsovertlsport" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
-dnsoverhttpsport=$(grep "dnsoverhttpsport" /opt/etc/bot_config.py | grep -Eo "[0-9]{1,5}")
+localportsh=$(grep "localportsh" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
+#dnsporttor=$(grep "dnsporttor" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
+localporttor=$(grep "localporttor" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
+localportvmess=$(grep "localportvmess" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
+localporttrojan=$(grep "localporttrojan" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
+dnsovertlsport=$(grep "dnsovertlsport" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
+dnsoverhttpsport=$(grep "dnsoverhttpsport" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 keen_os_full=$(curl -s localhost:79/rci/show/version/title | tr -d \",)
 keen_os_short=$(curl -s localhost:79/rci/show/version/title | tr -d \", | cut -b 1)
 
@@ -294,7 +304,9 @@ if [ "$1" = "-update" ]; then
     mv /opt/etc/ndm/fs.d/100-ipset.sh /opt/root/backup-"${now}"/100-ipset.sh
     mv /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh /opt/root/backup-"${now}"/100-unblock-vpn.sh
     mv /opt/etc/ndm/netfilter.d/100-redirect.sh /opt/root/backup-"${now}"/100-redirect.sh
-    mv /opt/etc/bot.py /opt/root/backup-"${now}"/bot.py
+    if [ -f "$BOT_MAIN_PATH" ]; then
+      mv "$BOT_MAIN_PATH" /opt/root/backup-"${now}"/bot.py
+    fi
     rm -R /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn > /dev/null 2>&1
     chmod 755 /opt/root/backup-"${now}"/*
     echo "Бэкап создан."
@@ -337,8 +349,9 @@ if [ "$1" = "-update" ]; then
     sed -i "s/40500/${dnsovertlsport}/g" /opt/etc/dnsmasq.conf
     sed -i "s/40508/${dnsoverhttpsport}/g" /opt/etc/dnsmasq.conf
 
-    curl -s -o /opt/etc/bot.py https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/bot.py
-    chmod 755 /opt/etc/bot.py
+    mkdir -p "$BOT_RUNTIME_DIR"
+    curl -s -o "$BOT_MAIN_PATH" https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/bot.py
+    chmod 755 "$BOT_MAIN_PATH"
     echo "Обновления скачены, права настроены."
 
     /opt/etc/init.d/S56dnsmasq restart > /dev/null 2>&1
@@ -347,12 +360,12 @@ if [ "$1" = "-update" ]; then
     /opt/etc/init.d/S22trojan start > /dev/null 2>&1
     /opt/etc/init.d/S35tor start > /dev/null 2>&1
 
-    bot_old_version=$(grep "ВЕРСИЯ" /opt/etc/bot_config.py | grep -Eo "[0-9].{1,}")
-    bot_new_version=$(grep "ВЕРСИЯ" /opt/etc/bot.py | grep -Eo "[0-9].{1,}")
+    bot_old_version=$(grep "ВЕРСИЯ" "$BOT_CONFIG_PATH" | grep -Eo "[0-9].{1,}")
+    bot_new_version=$(grep "ВЕРСИЯ" "$BOT_MAIN_PATH" | grep -Eo "[0-9].{1,}")
 
     echo "Версия бота" "${bot_old_version}" "обновлена до" "${bot_new_version}."
     sleep 2
-    sed -i "s/${bot_old_version}/${bot_new_version}/g" /opt/etc/bot_config.py
+    sed -i "s/${bot_old_version}/${bot_new_version}/g" "$BOT_CONFIG_PATH"
     echo "Обновление выполнено. Сервисы перезапущены. Сейчас будет перезапущен бот (~15-30 сек)."
     sleep 7
     # shellcheck disable=SC2009
@@ -360,12 +373,12 @@ if [ "$1" = "-update" ]; then
     bot_pid=$(ps | grep bot.py | awk '{print $1}')
     for bot in ${bot_pid}; do kill "${bot}"; done
     sleep 5
-    python3 /opt/etc/bot.py &
-    check_running=$(pidof python3 /opt/etc/bot.py)
+    python3 "$BOT_MAIN_PATH" &
+    check_running=$(pidof python3 "$BOT_MAIN_PATH")
     if [ -z "${check_running}" ]; then
       for bot in ${bot_pid}; do kill "${bot}"; done
       sleep 3
-      python3 /opt/etc/bot.py &
+      python3 "$BOT_MAIN_PATH" &
     else
       echo "Бот запущен. Нажмите сюда: /start";
     fi
