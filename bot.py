@@ -140,6 +140,49 @@ def _save_bot_autostart(enabled):
         pass
 
 
+def _prepare_entware_dns():
+    try:
+        result = subprocess.run(
+            ['nslookup', 'bin.entware.net', '192.168.1.1'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return 'Entware DNS уже доступен.'
+    except Exception:
+        pass
+
+    notes = []
+    try:
+        subprocess.run(['ndmc', '-c', 'no opkg dns-override'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(['ndmc', '-c', 'system configuration save'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        notes.append('opkg dns-override отключён')
+    except Exception:
+        notes.append('не удалось отключить opkg dns-override')
+
+    try:
+        resolv_conf = '/etc/resolv.conf'
+        existing = ''
+        if os.path.exists(resolv_conf):
+            with open(resolv_conf, 'r', encoding='utf-8', errors='ignore') as file:
+                existing = file.read()
+        additions = []
+        for nameserver in ['8.8.8.8', '1.1.1.1']:
+            entry = f'nameserver {nameserver}'
+            if entry not in existing:
+                additions.append(entry)
+        if additions:
+            with open(resolv_conf, 'a', encoding='utf-8') as file:
+                separator = '' if not existing or existing.endswith('\n') else '\n'
+                file.write(separator + '\n'.join(additions) + '\n')
+            notes.append('внешние DNS добавлены в /etc/resolv.conf')
+    except Exception:
+        notes.append('не удалось обновить /etc/resolv.conf')
+
+    return 'Подготовка Entware DNS: ' + ', '.join(notes)
+
+
 def _load_bot_autostart():
     try:
         with open(BOT_AUTOSTART_FILE, 'r', encoding='utf-8') as file:
@@ -713,6 +756,7 @@ def bot_message(message):
 
             if message.text == '/update':
                 bot.send_message(message.chat.id, 'Устанавливаются обновления, подождите!', reply_markup=service)
+                bot.send_message(message.chat.id, _prepare_entware_dns(), reply_markup=service)
                 os.system("curl -s -o /opt/root/script.sh " + _raw_github_url('script.sh'))
                 os.chmod(r"/opt/root/script.sh", 0o0755)
                 os.chmod('/opt/root/script.sh', stat.S_IRWXU)
@@ -1015,6 +1059,7 @@ def bot_message(message):
                 else:
                     repo = fork_repo_owner
 
+                bot.send_message(message.chat.id, _prepare_entware_dns(), reply_markup=main)
                 url = "https://raw.githubusercontent.com/{0}/{1}/main/script.sh".format(repo, fork_repo_name)
                 os.system("curl -s -o /opt/root/script.sh " + url + "")
                 os.chmod(r"/opt/root/script.sh", 0o0755)
