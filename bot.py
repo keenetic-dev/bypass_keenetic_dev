@@ -235,6 +235,8 @@ def _ensure_legacy_bot_paths():
 
 
 def _chunk_text(text, limit=3500):
+    if not text or not text.strip():
+        return []
     chunks = []
     current = []
     current_len = 0
@@ -254,6 +256,8 @@ def _chunk_text(text, limit=3500):
 
 def _send_telegram_chunks(chat_id, text, reply_markup=None):
     for chunk in _chunk_text(text):
+        if not chunk.strip():
+            continue
         bot.send_message(chat_id, chunk, reply_markup=reply_markup)
 
 
@@ -1317,11 +1321,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     def _build_form(self, message=''):
         status = _web_status_snapshot()
         message_block = ''
-          if message:
+                if message:
             safe_message = html.escape(message)
             message_block = f'''<div class="notice notice-result">
   <strong>Результат</strong>
-      <pre class="log-output">{safe_message}</pre>
+    <pre class="log-output">{safe_message}</pre>
 </div>'''
         socks_block = ''
         if status['socks_details']:
