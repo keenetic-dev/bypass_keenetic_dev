@@ -33,7 +33,7 @@ localporttrojan=$(grep "localporttrojan" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,
 dnsovertlsport=$(grep "dnsovertlsport" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 dnsoverhttpsport=$(grep "dnsoverhttpsport" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 keen_os_full=$(curl -s localhost:79/rci/show/version/title | tr -d \",)
-keen_os_short=$(curl -s localhost:79/rci/show/version/title | tr -d \", | cut -b 1)
+keen_os_short=$(printf '%s' "$keen_os_full" | grep -Eo '[0-9]+' | head -n1)
 
 ensure_entware_dns() {
   if nslookup bin.entware.net 192.168.1.1 >/dev/null 2>&1; then
@@ -112,7 +112,7 @@ if [ "$1" = "-install" ]; then
   ensure_entware_dns
     opkg update
     # opkg install curl mc tor tor-geoip bind-dig cron dnsmasq-full ipset iptables obfs4 shadowsocks-libev-ss-redir shadowsocks-libev-config
-    opkg install curl mc tor tor-geoip bind-dig cron dnsmasq-full ipset iptables obfs4 shadowsocks-libev-ss-redir shadowsocks-libev-config python3 python3-pip python3-pysocks v2ray trojan
+    opkg install curl mc tor tor-geoip bind-dig cron dnsmasq-full ipset iptables obfs4 shadowsocks-libev-ss-redir shadowsocks-libev-config python3 python3-pip v2ray trojan
     curl -O https://bootstrap.pypa.io/get-pip.py
     sleep 3
     python get-pip.py
