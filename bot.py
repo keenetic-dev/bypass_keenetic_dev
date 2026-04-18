@@ -1178,6 +1178,11 @@ def _parse_vless_key(key):
         path = '/'
     sni = params.get('sni', [''])[0] or host or address
     service_name = params.get('serviceName', [''])[0]
+    public_key = params.get('pbk', params.get('publicKey', ['']))[0]
+    short_id = params.get('sid', params.get('shortId', ['']))[0]
+    fingerprint = params.get('fp', params.get('fingerprint', ['']))[0]
+    spider_x = params.get('spx', params.get('spiderX', ['']))[0]
+    alpn = params.get('alpn', [''])[0]
     if not service_name and (network == 'grpc' or security == 'reality'):
         service_name = address
     return {
@@ -1191,7 +1196,12 @@ def _parse_vless_key(key):
         'path': path,
         'sni': sni,
         'type': network,
-        'serviceName': service_name
+        'serviceName': service_name,
+        'publicKey': public_key,
+        'shortId': short_id,
+        'fingerprint': fingerprint,
+        'spiderX': spider_x,
+        'alpn': alpn
     }
 
 
@@ -1325,8 +1335,14 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
                 'show': False,
                 'serverNames': server_names,
                 'dest': f"{vless_data.get('address', vless_data.get('host', ''))}:{vless_data.get('port', 443)}",
-                'xver': 0
+                'xver': 0,
+                'publicKey': vless_data.get('publicKey', ''),
+                'shortId': vless_data.get('shortId', ''),
+                'fingerprint': vless_data.get('fingerprint', 'chrome'),
+                'spiderX': vless_data.get('spiderX', '/')
             }
+            if vless_data.get('alpn'):
+                stream_settings['realitySettings']['alpn'] = [item.strip() for item in vless_data['alpn'].split(',') if item.strip()]
         config_data['outbounds'].append({
             'tag': 'proxy-vless',
             'domainStrategy': 'UseIPv4',
@@ -1501,20 +1517,25 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
             break
 
 
-# bot.polling(none_stop=True)
-_daemonize_process()
-proxy_mode = _load_proxy_mode()
-ok, error = update_proxy(proxy_mode)
-if not ok:
-    proxy_mode = config.default_proxy_mode
-    update_proxy(proxy_mode)
-start_http_server()
-wait_for_bot_start()
-try:
-    bot_polling = True
-    bot.infinity_polling(timeout=60, long_polling_timeout=50)
-except Exception as err:
-    bot_polling = False
-    fl = open("/opt/etc/error.log", "w")
-    fl.write(str(err))
-    fl.close()
+def main():
+    global proxy_mode, bot_polling
+    _daemonize_process()
+    proxy_mode = _load_proxy_mode()
+    ok, error = update_proxy(proxy_mode)
+    if not ok:
+        proxy_mode = config.default_proxy_mode
+        update_proxy(proxy_mode)
+    start_http_server()
+    wait_for_bot_start()
+    try:
+        bot_polling = True
+        bot.infinity_polling(timeout=60, long_polling_timeout=50)
+    except Exception as err:
+        bot_polling = False
+        fl = open("/opt/etc/error.log", "w")
+        fl.write(str(err))
+        fl.close()
+
+
+if __name__ == '__main__':
+    main()
