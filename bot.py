@@ -1321,11 +1321,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     def _build_form(self, message=''):
         status = _web_status_snapshot()
         message_block = ''
-                if message:
+        if message:
             safe_message = html.escape(message)
             message_block = f'''<div class="notice notice-result">
   <strong>Результат</strong>
-    <pre class="log-output">{safe_message}</pre>
+  <pre class="log-output">{safe_message}</pre>
 </div>'''
         socks_block = ''
         if status['socks_details']:
