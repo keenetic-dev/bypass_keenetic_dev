@@ -42,6 +42,9 @@ appapihash = config.appapihash
 usernames = config.usernames
 routerip = config.routerip
 browser_port = config.browser_port
+fork_repo_owner = getattr(config, 'fork_repo_owner', 'andruwko73')
+fork_repo_name = getattr(config, 'fork_repo_name', 'bypass_keenetic')
+fork_button_label = getattr(config, 'fork_button_label', f'Fork by {fork_repo_owner}')
 localportsh = config.localportsh
 localporttor = config.localporttor
 localporttrojan = config.localporttrojan
@@ -75,6 +78,10 @@ proxy_supports_http = {
     'vless': True,
     'trojan': False,
 }
+
+
+def _raw_github_url(path):
+    return f'https://raw.githubusercontent.com/{fork_repo_owner}/{fork_repo_name}/main/{path}'
 
 
 def _has_socks_support():
@@ -441,20 +448,20 @@ def bot_message(message):
                 return
 
             if message.text == '📄 Информация':
-                url = "https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/info.md"
+                url = _raw_github_url('info.md')
                 info_bot = requests.get(url).text
                 bot.send_message(message.chat.id, info_bot, parse_mode='Markdown', disable_web_page_preview=True,
                                  reply_markup=main)
                 return
 
             if message.text == '/keys_free':
-                url = "https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/keys.md"
+                url = _raw_github_url('keys.md')
                 keys_free = requests.get(url).text
                 bot.send_message(message.chat.id, keys_free, parse_mode='Markdown', disable_web_page_preview=True)
                 return
 
             if message.text == '🔄 Обновления' or message.text == '/check_update':
-                url = "https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/version.md"
+                url = _raw_github_url('version.md')
                 bot_new_version = requests.get(url).text
 
                 with open('/opt/etc/bot.py', encoding='utf-8') as file:
@@ -475,7 +482,7 @@ def bot_message(message):
 
             if message.text == '/update':
                 bot.send_message(message.chat.id, 'Устанавливаются обновления, подождите!', reply_markup=service)
-                os.system("curl -s -o /opt/root/script.sh https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/script.sh")
+                os.system("curl -s -o /opt/root/script.sh " + _raw_github_url('script.sh'))
                 os.chmod(r"/opt/root/script.sh", 0o0755)
                 os.chmod('/opt/root/script.sh', stat.S_IRWXU)
 
@@ -661,7 +668,7 @@ def bot_message(message):
             if level == 8:
                 # значит это ключи и мосты
                 if message.text == 'Где брать ключи❔':
-                    url = "https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/keys.md"
+                    url = _raw_github_url('keys.md')
                     keys = requests.get(url).text
                     bot.send_message(message.chat.id, keys, parse_mode='Markdown', disable_web_page_preview=True)
                     level = 8
@@ -764,21 +771,20 @@ def bot_message(message):
             if message.text == '♻️ Установка & переустановка':
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 item1 = types.KeyboardButton("Оригинальная версия")
-                item2 = types.KeyboardButton("Fork by NetworK")
+                item2 = types.KeyboardButton(fork_button_label)
                 back = types.KeyboardButton("🔙 Назад")
                 markup.row(item1, item2)
                 markup.row(back)
                 bot.send_message(message.chat.id, 'Выберите репозиторий', reply_markup=markup)
                 return
 
-            if message.text == "Оригинальная версия" or message.text == "Fork by NetworK":
+            if message.text == "Оригинальная версия" or message.text == fork_button_label:
                 if message.text == "Оригинальная версия":
                     repo = "tas-unn"
                 else:
-                    repo = "znetworkx"
+                    repo = fork_repo_owner
 
-                # os.system("curl -s -o /opt/root/script.sh https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/script.sh")
-                url = "https://raw.githubusercontent.com/{0}/bypass_keenetic/main/script.sh".format(repo)
+                url = "https://raw.githubusercontent.com/{0}/{1}/main/script.sh".format(repo, fork_repo_name)
                 os.system("curl -s -o /opt/root/script.sh " + url + "")
                 os.chmod(r"/opt/root/script.sh", 0o0755)
                 os.chmod('/opt/root/script.sh', stat.S_IRWXU)
@@ -807,7 +813,7 @@ def bot_message(message):
                 return
 
             if message.text == '⚠️ Удаление':
-                os.system("curl -s -o /opt/root/script.sh https://raw.githubusercontent.com/znetworkx/bypass_keenetic/main/script.sh")
+                os.system("curl -s -o /opt/root/script.sh " + _raw_github_url('script.sh'))
                 os.chmod(r"/opt/root/script.sh", 0o0755)
                 os.chmod('/opt/root/script.sh', stat.S_IRWXU)
 

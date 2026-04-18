@@ -9,6 +9,9 @@ appapiid = 'myapiid'
 appapihash = 'myiphash'
 routerip = '192.168.1.1'  # ip роутера
 browser_port = '8080'  # порт для веб-интерфейса установки ключей
+fork_repo_owner = 'andruwko73'  # GitHub username вашего форка bypass_keenetic
+fork_repo_name = 'bypass_keenetic'  # имя репозитория форка
+fork_button_label = 'Fork by andruwko73'  # подпись кнопки установки из вашего форка
 
 # список vpn для выборочной маршрутизации
 vpn_allowed="IKE|SSTP|OpenVPN|Wireguard|L2TP"

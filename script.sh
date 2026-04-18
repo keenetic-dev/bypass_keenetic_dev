@@ -8,9 +8,9 @@
 # Файл: script.sh, Версия 2.2.0, последнее изменение: 24.09.2023, 22:32
 # Доработал: NetworK (https://github.com/znetworkx)
 
-# оригинальный репозиторий (tas-unn), FORK by NetworK (znetworkx)
+# оригинальный репозиторий (tas-unn), пользовательский форк
 
-repo="znetworkx"
+repo="andruwko73"
 
 # ip роутера
 lanip=$(ip -4 addr show br0 | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
