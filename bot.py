@@ -282,6 +282,14 @@ def _v2ray_diagnostics():
 
 
 def _format_proxy_key_summary(key_type, key_value):
+    if key_type == 'shadowsocks':
+        server, port, method, password = _decode_shadowsocks_uri(key_value)
+        return ('Параметры Shadowsocks: server={server}, port={port}, method={method}, '
+                'password_len={password_len}').format(
+                    server=server,
+                    port=port,
+                    method=method,
+                    password_len=len(password))
     if key_type == 'vless':
         data = _parse_vless_key(key_value)
         return ('Параметры VLESS: address={address}, host={host}, port={port}, uuid={id}, network={type}, '
@@ -291,6 +299,16 @@ def _format_proxy_key_summary(key_type, key_value):
         service_name = data.get('serviceName') or data.get('grpcSettings', {}).get('serviceName', '')
         return ('Параметры VMESS: host={add}, port={port}, id={id}, network={net}, tls={tls}, '
                 'serviceName={service_name}').format(service_name=service_name, **data)
+    if key_type == 'trojan':
+        data = _parse_trojan_key(key_value)
+        return ('Параметры Trojan: address={address}, port={port}, sni={sni}, security={security}, '
+                'network={type}, password_len={password_len}').format(
+                    address=data['address'],
+                    port=data['port'],
+                    sni=data['sni'],
+                    security=data['security'],
+                    type=data['type'],
+                    password_len=len(data['password']))
     return ''
 
 
@@ -316,6 +334,116 @@ def _v2ray_outbound_summary(vmess_key=None, vless_key=None):
         return ' '.join(lines)
     except Exception as exc:
         return f'Не удалось построить сводный outbound-конфиг: {exc}'
+
+
+def _parse_trojan_key(key):
+    parsed = urlparse(key)
+    if parsed.scheme != 'trojan':
+        raise ValueError('Неверный протокол, ожидается trojan://')
+    if not parsed.hostname:
+        raise ValueError('В trojan-ключе отсутствует адрес сервера')
+    if not parsed.username:
+        raise ValueError('В trojan-ключе отсутствует пароль')
+    params = parse_qs(parsed.query)
+    return {
+        'address': parsed.hostname,
+        'port': parsed.port or 443,
+        'password': parsed.username,
+        'sni': params.get('sni', [''])[0],
+        'security': params.get('security', ['tls'])[0],
+        'type': params.get('type', ['tcp'])[0],
+        'host': params.get('host', [''])[0],
+        'path': params.get('path', ['/'])[0] or '/'
+    }
+
+
+def _build_proxy_diagnostics(key_type, key_value):
+    parts = []
+    key_summary = _format_proxy_key_summary(key_type, key_value)
+    if key_summary:
+        parts.append(key_summary)
+    if key_type == 'vmess':
+        parts.append(_v2ray_diagnostics())
+        parts.append('Сводка outbound: ' + _v2ray_outbound_summary(vmess_key=key_value))
+    elif key_type == 'vless':
+        parts.append(_v2ray_diagnostics())
+        parts.append('Сводка outbound: ' + _v2ray_outbound_summary(vless_key=key_value))
+    return ' '.join(part for part in parts if part)
+
+
+def _check_local_proxy_endpoint(key_type, port):
+    if key_type in ['shadowsocks', 'vmess', 'vless']:
+        if _check_socks5_handshake(port):
+            return True, f'Локальный SOCKS-порт 127.0.0.1:{port} отвечает как SOCKS5.'
+        if _port_is_listening(port):
+            return False, f'Локальный порт 127.0.0.1:{port} открыт, но не отвечает как SOCKS5.'
+        return False, f'Локальный порт 127.0.0.1:{port} недоступен.'
+    if key_type == 'trojan':
+        if _port_is_listening(port) or _wait_for_port(None, port, timeout=3):
+            return True, f'Локальный порт Trojan 127.0.0.1:{port} открыт.'
+        return False, f'Локальный порт Trojan 127.0.0.1:{port} недоступен.'
+    return True, ''
+
+
+def _apply_installed_proxy(key_type, key_value):
+    settings = {
+        'shadowsocks': {
+            'label': 'Shadowsocks',
+            'port': localportsh,
+            'restart_cmd': '/opt/etc/init.d/S22shadowsocks restart',
+            'startup_wait': 3,
+        },
+        'vmess': {
+            'label': 'Vmess',
+            'port': localportvmess,
+            'restart_cmd': '/opt/etc/init.d/S24v2ray restart',
+            'startup_wait': 18,
+        },
+        'vless': {
+            'label': 'Vless',
+            'port': localportvless,
+            'restart_cmd': '/opt/etc/init.d/S24v2ray restart',
+            'startup_wait': 18,
+        },
+        'trojan': {
+            'label': 'Trojan',
+            'port': localporttrojan,
+            'restart_cmd': '/opt/etc/init.d/S22trojan restart',
+            'startup_wait': 3,
+        }
+    }
+    current = settings[key_type]
+    os.system(current['restart_cmd'])
+    time.sleep(current['startup_wait'])
+
+    ok, error = update_proxy(key_type)
+    diagnostics = _build_proxy_diagnostics(key_type, key_value)
+    if not ok:
+        return f'⚠️ {current["label"]} ключ сохранён, но режим бота не применён: {error}. {diagnostics}'.strip()
+
+    if not _ensure_service_port(current['port'], current['restart_cmd'], retries=2, sleep_after_restart=5):
+        update_proxy('none')
+        return (f'⚠️ {current["label"]} ключ сохранён, но локальный порт 127.0.0.1:{current["port"]} '
+                f'не поднялся. Бот переключён в режим none. {diagnostics}').strip()
+
+    endpoint_ok, endpoint_message = _check_local_proxy_endpoint(key_type, current['port'])
+    if not endpoint_ok:
+        update_proxy('none')
+        return (f'⚠️ {current["label"]} ключ сохранён, но {endpoint_message} '
+                f'Бот переключён в режим none. {diagnostics}').strip()
+
+    if proxy_supports_http.get(key_type, False):
+        api_status = check_telegram_api(retries=1, retry_delay=2, connect_timeout=10, read_timeout=15)
+        if api_status.startswith('✅'):
+            return (f'✅ {current["label"]} ключ сохранён. {endpoint_message} '
+                    f'Бот переведён в режим {current["label"]}. {api_status} {diagnostics}').strip()
+        return (f'⚠️ {current["label"]} ключ сохранён. {endpoint_message} '
+                f'Бот переведён в режим {current["label"]}, но Telegram API не проходит через этот прокси. '
+                f'{api_status} {diagnostics}').strip()
+
+    return (f'⚠️ {current["label"]} ключ сохранён. {endpoint_message} '
+            f'Бот переведён в режим {current["label"]}, но Telegram API в текущей конфигурации '
+            f'через этот режим не проверяется и не используется как HTTP/SOCKS proxy. {diagnostics}').strip()
 
 
 def update_proxy(proxy_type):
@@ -1149,88 +1277,16 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         try:
             if key_type == 'shadowsocks':
                 shadowsocks(key_value)
-                os.system('/opt/etc/init.d/S22shadowsocks restart')
-                time.sleep(3)
-                ok, error = update_proxy('shadowsocks')
-                if ok:
-                    if not _ensure_service_port(localportsh, '/opt/etc/init.d/S22shadowsocks restart', retries=2, sleep_after_restart=5):
-                        update_proxy('none')
-                        diagnostics = _v2ray_diagnostics()
-                        result = ('⚠️ Shadowsocks обновлен, но локальный SOCKS-порт 127.0.0.1:'
-                                  + str(localportsh) + ' недоступен. Бот переключён в режим none. '
-                                  + diagnostics)
-                    else:
-                        api_status = check_telegram_api()
-                        if api_status.startswith('✅'):
-                            result = '✅ Shadowsocks успешно обновлен. Бот будет использовать Shadowsocks.'
-                        else:
-                            diagnostics = _v2ray_diagnostics()
-                            result = ('⚠️ Shadowsocks обновлен, локальный SOCKS-порт 127.0.0.1:'
-                                      + str(localportsh) + ' доступен, но Telegram API не прошёл через SOCKS. '
-                                      + api_status + ' ' + diagnostics)
-                else:
-                    result = f'⚠️ Shadowsocks обновлен, но прокси не применён: {error}'
+                result = _apply_installed_proxy('shadowsocks', key_value)
             elif key_type == 'vmess':
                 vmess(key_value)
-                os.system('/opt/etc/init.d/S24v2ray restart')
-                time.sleep(8)
-                ok, error = update_proxy('vmess')
-                if ok:
-                    if not _ensure_service_port(localportvmess, '/opt/etc/init.d/S24v2ray restart', retries=2, sleep_after_restart=5):
-                        update_proxy('none')
-                        diagnostics = _v2ray_diagnostics()
-                        result = ('⚠️ Vmess обновлен, но локальный SOCKS-порт 127.0.0.1:'
-                                  + str(localportvmess) + ' недоступен. Бот переключён в режим none. '
-                                  + diagnostics)
-                    else:
-                        api_status = check_telegram_api()
-                        key_summary = _format_proxy_key_summary('vmess', key_value)
-                        if api_status.startswith('✅'):
-                            result = ('✅ Vmess успешно обновлен. Бот будет использовать Vmess. ' + key_summary)
-                        else:
-                            diagnostics = _v2ray_diagnostics()
-                            result = ('⚠️ Vmess обновлен, локальный SOCKS-порт 127.0.0.1:'
-                                      + str(localportvmess) + ' доступен, но Telegram API не прошёл через SOCKS. '
-                                      + api_status + ' ' + diagnostics + ' ' + key_summary)
-                else:
-                    result = f'⚠️ Vmess обновлен, но прокси не применён: {error}'
+                result = _apply_installed_proxy('vmess', key_value)
             elif key_type == 'vless':
                 vless(key_value)
-                os.system('/opt/etc/init.d/S24v2ray restart')
-                time.sleep(8)
-                ok, error = update_proxy('vless')
-                if ok:
-                    if not _ensure_service_port(localportvless, '/opt/etc/init.d/S24v2ray restart', retries=2, sleep_after_restart=5):
-                        update_proxy('none')
-                        diagnostics = _v2ray_diagnostics()
-                        result = ('⚠️ Vless обновлен, но локальный SOCKS-порт 127.0.0.1:'
-                                  + str(localportvless) + ' недоступен. Бот переключён в режим none. '
-                                  + diagnostics)
-                    else:
-                        api_status = check_telegram_api()
-                        key_summary = _format_proxy_key_summary('vless', key_value)
-                        if api_status.startswith('✅'):
-                            result = ('✅ Vless успешно обновлен. Бот будет использовать Vless. ' + key_summary)
-                        else:
-                            diagnostics = _v2ray_diagnostics()
-                            outbound_summary = _v2ray_outbound_summary(None, key_value)
-                            result = ('⚠️ Vless обновлен, локальный SOCKS-порт 127.0.0.1:'
-                                      + str(localportvless) + ' доступен, но Telegram API не прошёл через SOCKS. '
-                                      + api_status + ' ' + diagnostics + ' ' + key_summary
-                                      + ' Сводка outbound: ' + outbound_summary)
-                else:
-                    result = f'⚠️ Vless обновлен, но прокси не применён: {error}'
+                result = _apply_installed_proxy('vless', key_value)
             elif key_type == 'trojan':
                 trojan(key_value)
-                os.system('/opt/etc/init.d/S22trojan restart')
-                time.sleep(2)
-                ok, error = update_proxy('trojan')
-                if ok:
-                    result = ('✅ Trojan успешно обновлен. '
-                              'Внимание: этот режим не поддерживает прокси Telegram API в текущей конфигурации. '
-                              'Telegram API может работать только через прямой маршрут или другие системные настройки роутера.')
-                else:
-                    result = f'⚠️ Trojan обновлен, но прокси не применён: {error}'
+                result = _apply_installed_proxy('trojan', key_value)
             elif key_type == 'tor':
                 tormanually(key_value)
                 os.system('/opt/etc/init.d/S35tor restart')
@@ -1241,10 +1297,6 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             result = f'Ошибка установки: {exc}'
         else:
             _invalidate_web_status_cache()
-            if result.startswith('✅') and proxy_supports_http.get(proxy_mode, False):
-                result = f'{result} {check_telegram_api()}'
-            elif result.startswith('✅') and proxy_mode == 'trojan':
-                result = f'{result} ❗ Telegram API не проверяется автоматически в режиме Trojan.'
 
         self._send_html(self._build_form(result))
 
