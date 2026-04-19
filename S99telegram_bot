@@ -11,22 +11,31 @@ check_process() {
     pgrep -f "python3 $MAIN_SCRIPT"
 }
 
+has_running_process() {
+    check_process >/dev/null 2>&1
+}
+
 has_config() {
     [ -f "$BOT_CONFIG_PATH" ] || [ -f "$LEGACY_CONFIG_PATH" ]
 }
 
 stop_main_process() {
-    pid=$(check_process)
-    if [ -z "$pid" ]; then
+    pids=$(check_process)
+    if [ -z "$pids" ]; then
         return 0
     fi
 
-    kill "$pid"
+    for pid in $pids; do
+        kill "$pid" >/dev/null 2>&1 || true
+    done
     sleep 2
-    if check_process > /dev/null; then
-        kill -9 "$pid"
+    if has_running_process; then
+        pids=$(check_process)
+        for pid in $pids; do
+            kill -9 "$pid" >/dev/null 2>&1 || true
+        done
         sleep 1
-        if check_process > /dev/null; then
+        if has_running_process; then
             echo "Error: Bot failed to stop even with SIGKILL"
             exit 1
         fi
@@ -52,7 +61,7 @@ case "$1" in
             exit $?
         fi
 
-        if check_process > /dev/null; then
+        if has_running_process; then
             echo "Bot is already running"
             exit 0
         fi
@@ -61,7 +70,7 @@ case "$1" in
         pid=$!
         sleep 2
 
-        if check_process > /dev/null; then
+        if has_running_process; then
             echo "Bot started successfully (PID: $pid)"
             exit 0
         fi
@@ -80,7 +89,7 @@ case "$1" in
             exit 0
         fi
 
-        if ! check_process > /dev/null; then
+        if ! has_running_process; then
             echo "Bot is not running"
             exit 0
         fi
