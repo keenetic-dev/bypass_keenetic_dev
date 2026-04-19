@@ -59,6 +59,8 @@ bypass = -1
 sid = "0"
 PROXY_MODE_FILE = '/opt/etc/bot_proxy_mode'
 BOT_AUTOSTART_FILE = '/opt/etc/bot_autostart'
+TELEGRAM_COMMAND_JOB_FILE = '/opt/etc/bot/telegram_command_job.json'
+TELEGRAM_COMMAND_RESULT_FILE = '/opt/etc/bot/telegram_command_result.json'
 
 WEB_STATUS_CACHE_TTL = 60
 KEY_STATUS_CACHE_TTL = 60
@@ -149,6 +151,28 @@ def _write_runtime_log(message, mode='a'):
                 file.write(text)
         except Exception:
             continue
+
+
+def _read_json_file(path, default=None):
+    try:
+        with open(path, 'r', encoding='utf-8') as file:
+            return json.load(file)
+    except Exception:
+        return default
+
+
+def _write_json_file(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as file:
+        json.dump(payload, file, ensure_ascii=False)
+
+
+def _remove_file(path):
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
 
 
 def _has_socks_support():
@@ -319,6 +343,114 @@ def _send_telegram_chunks(chat_id, text, reply_markup=None):
         if not chunk.strip():
             continue
         bot.send_message(chat_id, chunk, reply_markup=reply_markup)
+
+
+def _build_main_menu_markup():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    item1 = types.KeyboardButton("🔰 Установка и удаление")
+    item2 = types.KeyboardButton("🔑 Ключи и мосты")
+    item3 = types.KeyboardButton("📝 Списки обхода")
+    item4 = types.KeyboardButton("📄 Информация")
+    item5 = types.KeyboardButton("⚙️ Сервис")
+    markup.add(item1, item2, item3)
+    markup.add(item4, item5)
+    return markup
+
+
+def _build_service_menu_markup():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    item1 = types.KeyboardButton("♻️ Перезагрузить сервисы")
+    item2 = types.KeyboardButton("‼️Перезагрузить роутер")
+    item3 = types.KeyboardButton("‼️DNS Override")
+    item4 = types.KeyboardButton("🔄 Обновления")
+    back = types.KeyboardButton("🔙 Назад")
+    markup.add(item1, item2)
+    markup.add(item3, item4)
+    markup.add(back)
+    return markup
+
+
+def _telegram_command_markup(menu_name):
+    return _build_service_menu_markup() if menu_name == 'service' else _build_main_menu_markup()
+
+
+def _run_telegram_command_worker(action, repo_owner, repo_name, chat_id, menu_name):
+    try:
+        return_code, output = _run_script_action(action, repo_owner, repo_name)
+    except Exception as exc:
+        return_code = 1
+        output = f'Ошибка запуска фоновой команды: {exc}'
+    result = {
+        'action': action,
+        'chat_id': int(chat_id),
+        'menu_name': menu_name,
+        'return_code': return_code,
+        'output': output,
+        'finished_at': time.time(),
+    }
+    _write_json_file(TELEGRAM_COMMAND_RESULT_FILE, result)
+    _remove_file(TELEGRAM_COMMAND_JOB_FILE)
+
+
+def _start_telegram_background_command(action, repo_owner, repo_name, chat_id, menu_name):
+    state = _read_json_file(TELEGRAM_COMMAND_JOB_FILE, {}) or {}
+    started_at = float(state.get('started_at', 0) or 0)
+    if state.get('running') and started_at and time.time() - started_at < 1800:
+        return False, '⏳ Уже выполняется обновление. Дождитесь итогового сообщения после перезапуска бота.'
+
+    _write_json_file(TELEGRAM_COMMAND_JOB_FILE, {
+        'running': True,
+        'action': action,
+        'chat_id': int(chat_id),
+        'menu_name': menu_name,
+        'started_at': time.time(),
+    })
+
+    module_name = os.path.splitext(os.path.basename(BOT_SOURCE_PATH))[0]
+    module_dir = os.path.dirname(BOT_SOURCE_PATH)
+    code = (
+        'import sys; '
+        f"sys.path.insert(0, {module_dir!r}); "
+        f'import {module_name} as bot_module; '
+        f'bot_module._run_telegram_command_worker({action!r}, {repo_owner!r}, {repo_name!r}, {int(chat_id)!r}, {menu_name!r})'
+    )
+    subprocess.Popen(
+        [sys.executable, '-c', code],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
+    return True, ''
+
+
+def _deliver_pending_telegram_command_result():
+    result = _read_json_file(TELEGRAM_COMMAND_RESULT_FILE)
+    if not isinstance(result, dict):
+        return
+
+    chat_id = result.get('chat_id')
+    if not chat_id:
+        _remove_file(TELEGRAM_COMMAND_RESULT_FILE)
+        return
+
+    markup = _telegram_command_markup(result.get('menu_name', 'main'))
+    action = result.get('action', '')
+    return_code = int(result.get('return_code', 1))
+    output = (result.get('output') or '').strip()
+
+    try:
+        if output:
+            _send_telegram_chunks(chat_id, output, reply_markup=markup)
+        if return_code == 0:
+            final_message = '✅ Обновление завершено. Лог отправлен выше.' if action == '-update' else '✅ Команда завершена. Лог отправлен выше.'
+        else:
+            final_message = '⚠️ Обновление завершилось с ошибкой. Полный лог отправлен выше.' if action == '-update' else '⚠️ Команда завершилась с ошибкой. Полный лог отправлен выше.'
+        bot.send_message(chat_id, final_message, reply_markup=markup)
+        _remove_file(TELEGRAM_COMMAND_RESULT_FILE)
+    except Exception as exc:
+        _write_runtime_log(f'Не удалось доставить результат фоновой Telegram-команды: {exc}')
 
 
 def _install_proxy_from_message(message, key_type, key_value, reply_markup):
@@ -1525,18 +1657,23 @@ def bot_message(message):
                 return
 
             if message.text == '/update':
+                started, status_message = _start_telegram_background_command(
+                    '-update',
+                    fork_repo_owner,
+                    fork_repo_name,
+                    message.chat.id,
+                    'service',
+                )
+                if not started:
+                    bot.send_message(message.chat.id, status_message, reply_markup=service)
+                    return
                 bot.send_message(
                     message.chat.id,
                     f'Запускаю обновление из форка {fork_repo_owner}/{fork_repo_name}. Обычно это занимает 1-3 минуты. '
-                    'После завершения бот пришлет лог и отдельное сообщение об успехе или ошибке.',
+                    'Во время обновления бот может временно пропасть из сети, потому что сервис будет перезапущен. '
+                    'После запуска бот сам пришлет в этот чат лог и итоговое сообщение.',
                     reply_markup=service,
                 )
-                return_code, output = _run_script_action('-update', fork_repo_owner, fork_repo_name)
-                _send_telegram_chunks(message.chat.id, output, reply_markup=service)
-                if return_code == 0:
-                    bot.send_message(message.chat.id, '✅ Обновление завершено. Бот уже отправил лог выше.', reply_markup=service)
-                else:
-                    bot.send_message(message.chat.id, '⚠️ Обновление завершилось с ошибкой. Полный лог отправлен выше.', reply_markup=service)
                 return
 
             if message.text == '🔙 Назад' or message.text == "Назад":
@@ -1824,26 +1961,21 @@ def bot_message(message):
                 return
 
             if message.text == '♻️ Установка и переустановка' or message.text == '♻️ Установка & переустановка':
-                bot.send_message(
+                started, status_message = _start_telegram_background_command(
+                    '-update',
+                    fork_repo_owner,
+                    fork_repo_name,
                     message.chat.id,
-                    f'Запускаю переустановку из форка {fork_repo_owner}/{fork_repo_name} без сброса ключей и списков. '
-                    'Обычно это занимает 1-3 минуты. После завершения бот пришлет лог и отдельное сообщение об успехе или ошибке.',
-                    reply_markup=main,
+                    'main',
                 )
-                return_code, output = _run_script_action('-update', fork_repo_owner, fork_repo_name)
-                _send_telegram_chunks(message.chat.id, output, reply_markup=main)
-
-                if return_code != 0:
-                    bot.send_message(message.chat.id,
-                                     '⚠️ Переустановка из форка завершилась с ошибкой. Полный лог отправлен выше.',
-                                     reply_markup=main)
+                if not started:
+                    bot.send_message(message.chat.id, status_message, reply_markup=main)
                     return
-
                 bot.send_message(message.chat.id,
-                                 '✅ Переустановка из форка без сброса завершена. Бот уже отправил лог выше.',
+                                 f'Запускаю переустановку из форка {fork_repo_owner}/{fork_repo_name} без сброса ключей и списков. '
+                                 'Обычно это занимает 1-3 минуты. Во время обновления бот может временно пропасть из сети, '
+                                 'потому что сервис будет перезапущен. После запуска бот сам пришлет в этот чат лог и итоговое сообщение.',
                                  reply_markup=main)
-
-                subprocess.call(["/opt/bin/unblock_update.sh"])
                 return
 
             if message.text == '⚠️ Удаление':
@@ -2984,6 +3116,7 @@ def main():
         _write_runtime_log(f'Не удалось пересобрать core proxy config при старте: {exc}')
     if _load_bot_autostart():
         globals()['bot_ready'] = True
+    _deliver_pending_telegram_command_result()
     proxy_mode = _load_proxy_mode()
     ok, error = update_proxy(proxy_mode)
     if not ok:
