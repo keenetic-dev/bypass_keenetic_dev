@@ -1101,7 +1101,7 @@ def _protocol_status_for_key(key_name, key_value):
     )
     return {
         'tone': 'ok' if api_ok else 'warn',
-        'label': 'Работает' if api_ok else 'Прокси поднят, но трафик не проходит',
+            'label': 'Работает' if api_ok else 'Прокси поднят, но трафик TG не проходит',
         'details': f'{endpoint_message} {api_message}'.strip(),
     }
 
