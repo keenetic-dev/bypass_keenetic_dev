@@ -80,6 +80,8 @@ VLESS2_KEY_PATH = os.path.join(CORE_PROXY_CONFIG_DIR, 'vless2.key')
 
 bot_ready = False
 bot_polling = False
+bot_polling_thread = None
+bot_polling_lock = threading.Lock()
 web_httpd = None
 proxy_mode = config.default_proxy_mode
 proxy_settings = {
@@ -2129,6 +2131,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     <div class="hero-status-header">
         <strong>Связь с Telegram API</strong>
         <div class="traffic-inline">
+            <span class="traffic-chip"><span class="traffic-chip-label">Состояние</span><span class="traffic-chip-value">{html.escape(status['state_label'])}</span></span>
             <span class="traffic-chip"><span class="traffic-chip-label">Бот</span><span class="traffic-chip-value">{html.escape(current_mode_label)}</span></span>
             <span class="traffic-chip"><span class="traffic-chip-label">Списки</span><span class="traffic-chip-value">{html.escape(list_route_label)}</span></span>
         </div>
@@ -2227,6 +2230,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         }, 4000);
     </script>'''
 
+        start_button_label = 'Бот уже запущен' if bot_polling else ('Повторить запуск' if bot_ready else 'Запустить бота')
+        start_button_class = 'secondary-button' if bot_polling else ''
+        start_button_disabled = ' disabled' if bot_polling else ''
+        start_status_note = html.escape(status['state_label'])
+
         return f'''<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -2321,6 +2329,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 input::placeholder,textarea::placeholder{{color:#8b8f92;}}
                 button{{padding:13px 16px;border:none;border-radius:14px;background:linear-gradient(135deg, var(--primary), #246f61);color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:transform .15s ease, filter .15s ease, box-shadow .15s ease;box-shadow:0 10px 20px rgba(31,122,106,.18);}}
         button:hover{{filter:brightness(1.08);transform:translateY(-1px);}}
+                button:disabled{{cursor:default;filter:none;transform:none;opacity:.72;box-shadow:none;}}
                 button.danger{{background:linear-gradient(135deg, var(--danger), #85311f);box-shadow:0 10px 20px rgba(168,68,47,.18);}}
                 .success-button{{background:linear-gradient(135deg, #0f5c2d, #0b4120);box-shadow:0 10px 20px rgba(15,92,45,.28);}}
                 .secondary-button{{background:linear-gradient(135deg, var(--secondary), #b85b27);box-shadow:0 10px 20px rgba(201,111,50,.18);}}
@@ -2454,9 +2463,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 <span class="eyebrow">Запуск</span>
                 <h2 class="section-title">Быстрый старт</h2>
                     <p class="section-subtitle">После установки ключей можно сразу запустить бота.</p>
+                    <p class="status-note">Текущее состояние: {start_status_note}</p>
             </div>
             <form method="post" action="/start">
-                <button type="submit">Запустить бота</button>
+                <button type="submit" class="{start_button_class}"{start_button_disabled}>{start_button_label}</button>
             </form>
         </section>
         <div class="layout">
@@ -2514,8 +2524,14 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             global bot_ready
             bot_ready = True
             _save_bot_autostart(True)
+            started = ensure_bot_polling_started()
             _invalidate_web_status_cache()
-            result = 'Бот запущен. Теперь он сразу начнет работу с Telegram API.'
+            if bot_polling:
+                result = 'Бот уже запущен: Telegram polling активен.'
+            elif started:
+                result = 'Запуск бота инициирован. Telegram polling поднимется в этом процессе без перезапуска страницы.'
+            else:
+                result = 'Запуск уже выполняется. Обновите страницу через несколько секунд.'
             _set_web_flash_message(result)
             self._send_redirect('/')
             return
@@ -2619,6 +2635,31 @@ def wait_for_bot_start():
     global bot_ready
     while not bot_ready:
         time.sleep(1)
+
+
+def _bot_polling_worker():
+    global bot_polling
+    while bot_ready:
+        try:
+            bot_polling = True
+            bot.infinity_polling(timeout=60, long_polling_timeout=50)
+        except Exception as err:
+            _write_runtime_log(err)
+            time.sleep(5)
+        else:
+            time.sleep(2)
+        finally:
+            bot_polling = False
+
+
+def ensure_bot_polling_started():
+    global bot_polling_thread
+    with bot_polling_lock:
+        if bot_polling_thread is not None and bot_polling_thread.is_alive():
+            return False
+        bot_polling_thread = threading.Thread(target=_bot_polling_worker, daemon=True)
+        bot_polling_thread.start()
+        return True
 
 
 def _read_v2ray_key(file_path):
@@ -3157,7 +3198,7 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 
 
 def main():
-    global proxy_mode, bot_polling
+    global proxy_mode
     _daemonize_process()
     _write_runtime_log('main() entered', mode='w')
     start_http_server()
@@ -3194,16 +3235,8 @@ def main():
                 _write_runtime_log(f'Прокси-режим {proxy_mode} не подтверждён при старте: {api_status}')
     wait_for_bot_start()
     while True:
-        try:
-            bot_polling = True
-            bot.infinity_polling(timeout=60, long_polling_timeout=50)
-        except Exception as err:
-            bot_polling = False
-            _write_runtime_log(err)
-            time.sleep(5)
-        else:
-            bot_polling = False
-            time.sleep(2)
+        ensure_bot_polling_started()
+        time.sleep(1)
 
 
 if __name__ == '__main__':
