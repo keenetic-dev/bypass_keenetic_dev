@@ -595,6 +595,20 @@ def _set_dns_override(enabled):
     return '✅ DNS Override выключен. Роутер будет автоматически перезагружен через несколько секунд.'
 
 
+def _dns_override_enabled():
+    try:
+        result = subprocess.run(
+            ['ndmc', '-c', 'show running-config'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        return 'opkg dns-override' in (result.stdout or '')
+    except Exception:
+        return False
+
+
 def _run_web_command(command):
     if command == 'install_original':
         _, output = _run_script_action('-install', 'tas-unn', 'bypass_keenetic')
@@ -2166,10 +2180,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
   </section>''')
         protocol_cards_html = ''.join(protocol_cards)
 
+        dns_override_active = _dns_override_enabled()
         command_buttons = [
             ('update', 'Переустановить из форка без сброса', ''),
             ('restart_services', 'Перезапустить сервисы', ''),
-            ('dns_on', 'DNS Override ВКЛ', ''),
+            ('dns_on', 'DNS Override ВКЛ', 'success-button' if dns_override_active else ''),
             ('dns_off', 'DNS Override ВЫКЛ', ''),
             ('remove', 'Удалить компоненты', 'danger'),
             ('reboot', 'Перезагрузить роутер', 'danger'),
@@ -2307,6 +2322,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 button{{padding:13px 16px;border:none;border-radius:14px;background:linear-gradient(135deg, var(--primary), #246f61);color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:transform .15s ease, filter .15s ease, box-shadow .15s ease;box-shadow:0 10px 20px rgba(31,122,106,.18);}}
         button:hover{{filter:brightness(1.08);transform:translateY(-1px);}}
                 button.danger{{background:linear-gradient(135deg, var(--danger), #85311f);box-shadow:0 10px 20px rgba(168,68,47,.18);}}
+                .success-button{{background:linear-gradient(135deg, #0f5c2d, #0b4120);box-shadow:0 10px 20px rgba(15,92,45,.28);}}
                 .secondary-button{{background:linear-gradient(135deg, var(--secondary), #b85b27);box-shadow:0 10px 20px rgba(201,111,50,.18);}}
         .status-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px;}}
                 .status-card{{padding:14px;border-radius:18px;background:rgba(79,140,255,.08);border:1px solid rgba(96,165,250,.18);}}
