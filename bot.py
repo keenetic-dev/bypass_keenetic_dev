@@ -1682,10 +1682,6 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
       <textarea name="content" rows="8" placeholder="example.org&#10;api.telegram.org">{safe_content}</textarea>
       <button type="submit">Сохранить список</button>
     </form>
-    <form method="post" action="/append_socialnet">
-      <input type="hidden" name="list_name" value="{safe_name}">
-      <button type="submit">Добавить соцсети</button>
-    </form>
   </section>''')
         unblock_lists_block = ''.join(unblock_cards)
 
@@ -1895,7 +1891,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             <div>
                 <span class="eyebrow">Запуск</span>
                 <h2 class="section-title">Быстрый старт</h2>
-                <p class="section-subtitle">После установки ключей можно сразу включить polling бота.</p>
+                    <p class="section-subtitle">После установки ключей можно сразу запустить бота.</p>
             </div>
             <form method="post" action="/start">
                 <button type="submit">Запустить бота</button>
@@ -1955,7 +1951,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             bot_ready = True
             _save_bot_autostart(True)
             _invalidate_web_status_cache()
-            result = 'Бот запущен. Теперь бот начал polling Telegram API.'
+            result = 'Бот запущен. Теперь он сразу начнет работу с Telegram API.'
             self._send_html(self._build_form(result))
             return
 

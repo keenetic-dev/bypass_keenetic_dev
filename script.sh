@@ -65,6 +65,35 @@ ensure_entware_dns() {
   fi
 }
 
+download_update_file() {
+  url="$1"
+  target="$2"
+  marker="$3"
+  description="$4"
+  tmp="${target}.tmp.$$"
+
+  rm -f "$tmp"
+  if ! curl -fsSL --connect-timeout 15 --retry 2 --retry-delay 1 -o "$tmp" "$url"; then
+    rm -f "$tmp"
+    echo "Ошибка: не удалось скачать ${description} из ${url}"
+    return 1
+  fi
+
+  if [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    echo "Ошибка: ${description} скачан пустым файлом"
+    return 1
+  fi
+
+  if [ -n "$marker" ] && ! grep -q "$marker" "$tmp"; then
+    rm -f "$tmp"
+    echo "Ошибка: ${description} не прошёл проверку содержимого"
+    return 1
+  fi
+
+  mv "$tmp" "$target"
+}
+
 if [ "$1" = "-remove" ]; then
     echo "Начинаем удаление"
     # opkg remove curl mc tor tor-geoip bind-dig cron dnsmasq-full ipset iptables obfs4 shadowsocks-libev-ss-redir shadowsocks-libev-config
@@ -307,71 +336,90 @@ if [ "$1" = "-update" ]; then
     echo "Ваша версия KeenOS" "${keen_os_full}."
     echo "Пакеты обновлены."
 
+    now=$(date +"%Y.%m.%d.%H-%M")
+    stage_dir="/opt/root/update-${now}"
+    backup_dir="/opt/root/backup-${now}"
+    mkdir -p "$stage_dir"
+
+    if [ "${keen_os_short}" = "4" ]; then
+      echo "KeenOS 4+";
+      vpn_script_url="https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn-v4.sh"
+    elif [ "${keen_os_short}" = "3" ]; then
+      echo "KeenOS 3+";
+      vpn_script_url="https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh"
+    else
+      echo "Your really KeenOS ???";
+      vpn_script_url="https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh"
+    fi
+
+    echo "Скачиваем обновления во временную папку и проверяем файлы."
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-ipset.sh" "$stage_dir/100-ipset.sh" "#!/bin/sh" "100-ipset.sh" || exit 1
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-redirect.sh" "$stage_dir/100-redirect.sh" "iptables -I PREROUTING" "100-redirect.sh" || exit 1
+    download_update_file "$vpn_script_url" "$stage_dir/100-unblock-vpn.sh" "#!/bin/sh" "100-unblock-vpn.sh" || exit 1
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock_ipset.sh" "$stage_dir/unblock_ipset.sh" "#!/bin/sh" "unblock_ipset.sh" || exit 1
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock.dnsmasq" "$stage_dir/unblock_dnsmasq.sh" "#!/bin/sh" "unblock.dnsmasq" || exit 1
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock_update.sh" "$stage_dir/unblock_update.sh" "#!/bin/sh" "unblock_update.sh" || exit 1
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/dnsmasq.conf" "$stage_dir/dnsmasq.conf" "listen-address=" "dnsmasq.conf" || exit 1
+    download_update_file "https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/bot.py" "$stage_dir/bot.py" "KeyInstallHTTPRequestHandler" "bot.py" || exit 1
+
+    sed -i "s/hash:net/${set_type}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/192.168.1.1/${lanip}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/1082/${localportsh}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/9141/${localporttor}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/10810/${localportvmess}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/10811/${localportvless}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/10812/${localportvless_transparent}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/10829/${localporttrojan}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/40500/${dnsovertlsport}/g" "$stage_dir/unblock_ipset.sh"
+    sed -i "s/40500/${dnsovertlsport}/g" "$stage_dir/unblock_dnsmasq.sh"
+    sed -i "s/192.168.1.1/${lanip}/g" "$stage_dir/dnsmasq.conf"
+    sed -i "s/40500/${dnsovertlsport}/g" "$stage_dir/dnsmasq.conf"
+    sed -i "s/40508/${dnsoverhttpsport}/g" "$stage_dir/dnsmasq.conf"
+    echo "Файлы успешно скачаны и подготовлены."
+
     /opt/etc/init.d/S22shadowsocks stop > /dev/null 2>&1
     /opt/etc/init.d/S24v2ray stop > /dev/null 2>&1
     /opt/etc/init.d/S22trojan stop > /dev/null 2>&1
     /opt/etc/init.d/S35tor stop > /dev/null 2>&1
     echo "Сервисы остановлены."
 
-    now=$(date +"%Y.%m.%d.%H-%M")
-    mkdir /opt/root/backup-"${now}"
-    mv /opt/bin/unblock_ipset.sh /opt/root/backup-"${now}"/unblock_ipset.sh
-    mv /opt/bin/unblock_dnsmasq.sh /opt/root/backup-"${now}"/unblock_dnsmasq.sh
-    mv /opt/bin/unblock_update.sh /opt/root/backup-"${now}"/unblock_update.sh
-    mv /opt/etc/dnsmasq.conf /opt/root/backup-"${now}"/dnsmasq.conf
-    mv /opt/etc/ndm/fs.d/100-ipset.sh /opt/root/backup-"${now}"/100-ipset.sh
-    mv /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh /opt/root/backup-"${now}"/100-unblock-vpn.sh
-    mv /opt/etc/ndm/netfilter.d/100-redirect.sh /opt/root/backup-"${now}"/100-redirect.sh
+    mkdir "$backup_dir"
+    [ -f /opt/bin/unblock_ipset.sh ] && mv /opt/bin/unblock_ipset.sh "$backup_dir"/unblock_ipset.sh
+    [ -f /opt/bin/unblock_dnsmasq.sh ] && mv /opt/bin/unblock_dnsmasq.sh "$backup_dir"/unblock_dnsmasq.sh
+    [ -f /opt/bin/unblock_update.sh ] && mv /opt/bin/unblock_update.sh "$backup_dir"/unblock_update.sh
+    [ -f /opt/etc/dnsmasq.conf ] && mv /opt/etc/dnsmasq.conf "$backup_dir"/dnsmasq.conf
+    [ -f /opt/etc/ndm/fs.d/100-ipset.sh ] && mv /opt/etc/ndm/fs.d/100-ipset.sh "$backup_dir"/100-ipset.sh
+    [ -f /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh ] && mv /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh "$backup_dir"/100-unblock-vpn.sh
+    [ -f /opt/etc/ndm/netfilter.d/100-redirect.sh ] && mv /opt/etc/ndm/netfilter.d/100-redirect.sh "$backup_dir"/100-redirect.sh
     if [ -f "$BOT_MAIN_PATH" ]; then
-      mv "$BOT_MAIN_PATH" /opt/root/backup-"${now}"/bot.py
+      mv "$BOT_MAIN_PATH" "$backup_dir"/bot.py
     fi
     rm -R /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn > /dev/null 2>&1
-    chmod 755 /opt/root/backup-"${now}"/*
+    chmod 755 "$backup_dir"/* 2>/dev/null
     echo "Бэкап создан."
 
     touch /opt/etc/hosts || chmod 0755 /opt/etc/hosts
-    curl -s -o /opt/etc/ndm/fs.d/100-ipset.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-ipset.sh
+    mv "$stage_dir/100-ipset.sh" /opt/etc/ndm/fs.d/100-ipset.sh
     chmod 755 /opt/etc/ndm/fs.d/100-ipset.sh || chmod +x /opt/etc/ndm/fs.d/100-ipset.sh
-    curl -s -o /opt/etc/ndm/netfilter.d/100-redirect.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-redirect.sh
+    mv "$stage_dir/100-redirect.sh" /opt/etc/ndm/netfilter.d/100-redirect.sh
     chmod 755 /opt/etc/ndm/netfilter.d/100-redirect.sh || chmod +x /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/hash:net/${set_type}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/192.168.1.1/${lanip}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/1082/${localportsh}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/9141/${localporttor}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/10810/${localportvmess}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/10811/${localportvless}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/10812/${localportvless_transparent}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
-    sed -i "s/10829/${localporttrojan}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
     sed -i 's|ARGS="-confdir /opt/etc/v2ray"|ARGS="run -c /opt/etc/v2ray/config.json"|g' /opt/etc/init.d/S24v2ray > /dev/null 2>&1
 
-    if [ "${keen_os_short}" = "4" ]; then
-      echo "KeenOS 4+";
-      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn-v4.sh
-    elif [ "${keen_os_short}" = "3" ]; then
-      echo "KeenOS 3+";
-      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh
-    else
-      echo "Your really KeenOS ???";
-      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh
-    fi
+    mv "$stage_dir/100-unblock-vpn.sh" /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh
     chmod 755 /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh || chmod +x /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh
 
-    curl -s -o /opt/bin/unblock_ipset.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock_ipset.sh
-    curl -s -o /opt/bin/unblock_dnsmasq.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock.dnsmasq
-    curl -s -o /opt/bin/unblock_update.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock_update.sh
+    mv "$stage_dir/unblock_ipset.sh" /opt/bin/unblock_ipset.sh
+    mv "$stage_dir/unblock_dnsmasq.sh" /opt/bin/unblock_dnsmasq.sh
+    mv "$stage_dir/unblock_update.sh" /opt/bin/unblock_update.sh
     chmod 755 /opt/bin/unblock_*.sh || chmod +x /opt/bin/unblock_*.sh
-    sed -i "s/40500/${dnsovertlsport}/g" /opt/bin/unblock_ipset.sh
-    sed -i "s/40500/${dnsovertlsport}/g" /opt/bin/unblock_dnsmasq.sh
 
-    curl -s -o /opt/etc/dnsmasq.conf https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/dnsmasq.conf
+    mv "$stage_dir/dnsmasq.conf" /opt/etc/dnsmasq.conf
     chmod 755 /opt/etc/dnsmasq.conf
-    sed -i "s/192.168.1.1/${lanip}/g" /opt/etc/dnsmasq.conf
-    sed -i "s/40500/${dnsovertlsport}/g" /opt/etc/dnsmasq.conf
-    sed -i "s/40508/${dnsoverhttpsport}/g" /opt/etc/dnsmasq.conf
 
     mkdir -p "$BOT_RUNTIME_DIR"
-    curl -s -o "$BOT_MAIN_PATH" https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/bot.py
+    mv "$stage_dir/bot.py" "$BOT_MAIN_PATH"
     chmod 755 "$BOT_MAIN_PATH"
+    rmdir "$stage_dir" 2>/dev/null || true
     echo "Обновления скачены, права настроены."
 
     /opt/etc/init.d/S56dnsmasq restart > /dev/null 2>&1
