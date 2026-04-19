@@ -3395,7 +3395,6 @@ def main():
     _register_signal_handlers()
     _write_runtime_log('main() entered', mode='w')
     start_http_server()
-    _start_telegram_result_retry_worker()
     try:
         _write_all_proxy_core_config()
         os.system(CORE_PROXY_SERVICE_SCRIPT + ' restart')
@@ -3403,7 +3402,6 @@ def main():
         _write_runtime_log(f'Не удалось пересобрать core proxy config при старте: {exc}')
     if _load_bot_autostart():
         globals()['bot_ready'] = True
-    _deliver_pending_telegram_command_result()
     proxy_mode = _load_proxy_mode()
     ok, error = update_proxy(proxy_mode)
     if not ok:
@@ -3427,6 +3425,8 @@ def main():
             api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=8, read_timeout=10)
             if not api_status.startswith('✅'):
                 _write_runtime_log(f'Прокси-режим {proxy_mode} не подтверждён при старте: {api_status}')
+    _deliver_pending_telegram_command_result()
+    _start_telegram_result_retry_worker()
     wait_for_bot_start()
     while not shutdown_requested.is_set():
         try:
