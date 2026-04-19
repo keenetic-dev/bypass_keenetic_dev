@@ -233,9 +233,11 @@ def _telegram_info_text_from_readme():
     for title, section_lines in selected:
         if text_lines:
             text_lines.append('')
-        text_lines.append(title)
+        text_lines.append(f'<b>{html.escape(title)}</b>')
         for line in section_lines:
             stripped = line.strip()
+            if stripped.startswith('### Скриншоты интерфейса'):
+                break
             if not stripped:
                 if text_lines and text_lines[-1] != '':
                     text_lines.append('')
@@ -244,8 +246,12 @@ def _telegram_info_text_from_readme():
                 continue
             if stripped.startswith('!['):
                 continue
-            cleaned = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', stripped)
-            cleaned = cleaned.replace('`', '')
+            cleaned = html.escape(stripped.replace('`', ''))
+            cleaned = re.sub(
+                r'\[([^\]]+)\]\(([^\)]+)\)',
+                lambda match: f'<a href="{html.escape(match.group(2), quote=True)}">{html.escape(match.group(1))}</a>',
+                cleaned,
+            )
             text_lines.append(cleaned)
 
     cleaned_lines = []
@@ -1206,11 +1212,19 @@ def _protocol_status_for_key(key_name, key_value):
             'label': 'Проверяется',
             'details': (f'{endpoint_message} Telegram API ещё перепроверяется после рестарта. '
                         'Обновите страницу через несколько секунд.').strip(),
+            'endpoint_ok': endpoint_ok,
+            'endpoint_message': endpoint_message,
+            'api_ok': False,
+            'api_message': api_message,
         }
     return {
         'tone': 'ok' if api_ok else 'warn',
         'label': 'Работает' if api_ok else 'Прокси поднят, но трафик TG не проходит',
         'details': f'{endpoint_message} {api_message}'.strip(),
+        'endpoint_ok': endpoint_ok,
+        'endpoint_message': endpoint_message,
+        'api_ok': api_ok,
+        'api_message': api_message,
     }
 
 
@@ -1776,12 +1790,28 @@ def _is_transient_telegram_api_failure(status_text):
     return any(marker in text for marker in markers)
 
 
-def _build_web_status(current_keys):
+def _build_web_status(current_keys, protocols=None):
     now = time.time()
     state_label = 'polling активен' if bot_polling else ('ожидает запуска' if not bot_ready else 'процесс запущен, polling недоступен')
     socks_details = ''
     socks_ok = False
-    if proxy_mode in ['shadowsocks', 'vmess', 'vless', 'vless2', 'trojan']:
+    current_protocol = protocols.get(proxy_mode) if isinstance(protocols, dict) else None
+    if current_protocol and proxy_mode in ['shadowsocks', 'vmess', 'vless', 'vless2', 'trojan']:
+        socks_ok = bool(current_protocol.get('endpoint_ok'))
+        socks_details = current_protocol.get('endpoint_message', '')
+        api_ok = bool(current_protocol.get('api_ok'))
+        api_message = str(current_protocol.get('api_message', '') or '')
+        if api_ok:
+            api_status = '✅ Доступ к api.telegram.org подтверждён.'
+        elif (socks_ok and now - process_started_at < WEB_STATUS_STARTUP_GRACE_PERIOD and
+                _is_transient_telegram_api_failure(api_message)):
+            api_status = ('⏳ Прокси-режим поднят, Telegram API ещё перепроверяется после рестарта. '
+                          'Обновите страницу через несколько секунд.')
+        elif proxy_mode == 'none':
+            api_status = f'❌ Прямой доступ к api.telegram.org не проходит: {api_message}'
+        else:
+            api_status = f'❌ Доступ к Telegram API через режим {proxy_mode} не проходит: {api_message}'
+    elif proxy_mode in ['shadowsocks', 'vmess', 'vless', 'vless2', 'trojan']:
         port = {
             'shadowsocks': localportsh_bot,
             'vmess': localportvmess,
@@ -1792,12 +1822,14 @@ def _build_web_status(current_keys):
         if port:
             socks_ok = _check_socks5_handshake(port)
             socks_details = f'Локальный SOCKS {proxy_mode} 127.0.0.1:{port}: {"доступен" if socks_ok else "не отвечает как SOCKS5"}'
-    api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=3, read_timeout=4)
-    if (proxy_mode != 'none' and socks_ok and not api_status.startswith('✅') and
-            now - process_started_at < WEB_STATUS_STARTUP_GRACE_PERIOD and
-            _is_transient_telegram_api_failure(api_status)):
-        api_status = ('⏳ Прокси-режим поднят, Telegram API ещё перепроверяется после рестарта. '
-                      'Обновите страницу через несколько секунд.')
+        api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=3, read_timeout=4)
+        if (proxy_mode != 'none' and socks_ok and not api_status.startswith('✅') and
+                now - process_started_at < WEB_STATUS_STARTUP_GRACE_PERIOD and
+                _is_transient_telegram_api_failure(api_status)):
+            api_status = ('⏳ Прокси-режим поднят, Telegram API ещё перепроверяется после рестарта. '
+                          'Обновите страницу через несколько секунд.')
+    else:
+        api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=3, read_timeout=4)
     snapshot = {
         'state_label': state_label,
         'proxy_mode': proxy_mode,
@@ -1832,7 +1864,7 @@ def _build_status_snapshot(current_keys, force_refresh=False):
             }
 
     snapshot = {
-        'web': _build_web_status(current_keys),
+        'web': _build_web_status(current_keys, protocols=protocols),
         'protocols': protocols,
     }
     status_snapshot_cache['timestamp'] = now
@@ -1999,6 +2031,7 @@ def bot_message(message):
                 bot.send_message(
                     message.chat.id,
                     info_bot,
+                    parse_mode='HTML',
                     disable_web_page_preview=True,
                     reply_markup=main,
                 )
