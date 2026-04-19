@@ -115,6 +115,8 @@ web_command_state = {
     'started_at': 0,
     'finished_at': 0,
 }
+web_flash_lock = threading.Lock()
+web_flash_message = ''
 
 
 def _raw_github_url(path):
@@ -672,6 +674,20 @@ def _web_command_label(command):
 def _get_web_command_state():
     with web_command_lock:
         return dict(web_command_state)
+
+
+def _set_web_flash_message(message):
+    global web_flash_message
+    with web_flash_lock:
+        web_flash_message = message or ''
+
+
+def _consume_web_flash_message():
+    global web_flash_message
+    with web_flash_lock:
+        message = web_flash_message
+        web_flash_message = ''
+    return message
 
 
 def _finish_web_command(command, result):
@@ -1670,6 +1686,14 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.close_connection = True
 
+    def _send_redirect(self, location='/'):
+        self.send_response(303)
+        self.send_header('Location', location)
+        self.send_header('Content-Length', '0')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+
     def _build_form(self, message=''):
         status = _web_status_snapshot(force_refresh=True)
         command_state = _get_web_command_state()
@@ -2055,7 +2079,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path in ['/', '/index.html', '/command']:
-            self._send_html(self._build_form())
+            self._send_html(self._build_form(_consume_web_flash_message()))
         else:
             self._send_html('<h1>404 Not Found</h1>', status=404)
 
@@ -2073,7 +2097,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 result = f'⚠️ {error}'
             _invalidate_web_status_cache()
             _invalidate_key_status_cache()
-            self._send_html(self._build_form(result))
+            _set_web_flash_message(result)
+            self._send_redirect('/')
             return
 
         if path == '/start':
@@ -2082,7 +2107,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             _save_bot_autostart(True)
             _invalidate_web_status_cache()
             result = 'Бот запущен. Теперь он сразу начнет работу с Telegram API.'
-            self._send_html(self._build_form(result))
+            _set_web_flash_message(result)
+            self._send_redirect('/')
             return
 
         if path == '/command':
@@ -2091,7 +2117,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             data = parse_qs(body)
             command = data.get('command', [''])[0]
             _, result = _start_web_command(command)
-            self._send_html(self._build_form(result))
+            _set_web_flash_message(result)
+            self._send_redirect('/')
             return
 
         if path == '/save_unblock_list':
@@ -2104,7 +2131,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 result = _save_unblock_list(list_name, content)
             except Exception as exc:
                 result = f'Ошибка сохранения списка: {exc}'
-            self._send_html(self._build_form(result))
+            _set_web_flash_message(result)
+            self._send_redirect('/')
             return
 
         if path == '/append_socialnet':
@@ -2116,7 +2144,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 result = _append_socialnet_list(list_name)
             except Exception as exc:
                 result = f'Ошибка добавления соцсетей: {exc}'
-            self._send_html(self._build_form(result))
+            _set_web_flash_message(result)
+            self._send_redirect('/')
             return
 
         if path != '/install':
@@ -2153,7 +2182,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             _invalidate_web_status_cache()
             _invalidate_key_status_cache()
 
-        self._send_html(self._build_form(result))
+        _set_web_flash_message(result)
+        self._send_redirect('/')
 
 
 def start_http_server():
