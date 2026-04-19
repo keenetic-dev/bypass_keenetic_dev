@@ -1820,6 +1820,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 if command_state['label']:
                         command_title = 'Команда выполняется' if command_state['running'] else 'Последняя команда'
                         command_text = command_state['result'] or f'⏳ {command_state["label"]} ещё выполняется. Обновление страницы происходит автоматически.'
+                command_block = ''
+                if command_state['label']:
+                        command_title = 'Команда выполняется' if command_state['running'] else 'Последняя команда'
+                        command_text = command_state['result'] or f'⏳ {command_state["label"]} ещё выполняется. Обновление страницы происходит автоматически.'
                         progress_block = ''
                         if command_state['command'] == 'update' and command_state['progress']:
                                 progress_value = max(0, min(100, int(command_state['progress'])))
@@ -1836,11 +1840,6 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     {progress_block}
     <pre class="log-output">{html.escape(command_text)}</pre>
 </div>'''
-
-        socks_block = ''
-        if status['socks_details']:
-            socks_block = f'<p class="status-note">{html.escape(status["socks_details"])}' + '</p>'
-
         fallback_block = ''
         if status.get('fallback_reason') and status['proxy_mode'] == 'none':
             fallback_block = f'<p class="status-note">Последняя неудачная попытка прокси: {html.escape(status["fallback_reason"])}</p>'
