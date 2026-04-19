@@ -31,6 +31,8 @@ localporttor=$(grep "localporttor" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 localportvmess=$(grep "localportvmess" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 localportvless=$(grep "localportvless" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 localportvless_transparent=$((localportvless + 1))
+localportvless2=$((localportvless + 2))
+localportvless2_transparent=$((localportvless + 3))
 localporttrojan=$(grep "localporttrojan" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 dnsovertlsport=$(grep "dnsovertlsport" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
 dnsoverhttpsport=$(grep "dnsoverhttpsport" "$BOT_CONFIG_PATH" | grep -Eo "[0-9]{1,5}")
@@ -104,6 +106,7 @@ if [ "$1" = "-remove" ]; then
     ipset flush unblocksh
     ipset flush unblockvmess
     ipset flush unblockvless
+    ipset flush unblockvless2
     ipset flush unblocktroj
     #ipset flush unblockvpn
     if ls -d /opt/etc/unblock/vpn-*.txt >/dev/null 2>&1; then
@@ -223,6 +226,7 @@ if [ "$1" = "-install" ]; then
     touch /opt/etc/unblock/trojan.txt || chmod 0755 /opt/etc/unblock/trojan.txt
     touch /opt/etc/unblock/vmess.txt || chmod 0755 /opt/etc/unblock/vmess.txt
     touch /opt/etc/unblock/vless.txt || chmod 0755 /opt/etc/unblock/vless.txt
+    touch /opt/etc/unblock/vless-2.txt || chmod 0755 /opt/etc/unblock/vless-2.txt
     touch /opt/etc/unblock/vpn.txt || chmod 0755 /opt/etc/unblock/vpn.txt
     echo "Созданы файлы под сайты и ip-адреса для обхода блокировок для SS, Tor, Trojan, Vmess, Vless и VPN"
 
@@ -264,6 +268,8 @@ if [ "$1" = "-install" ]; then
     sed -i "s/10810/${localportvmess}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
     sed -i "s/10811/${localportvless}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
     sed -i "s/10812/${localportvless_transparent}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
+    sed -i "s/10813/${localportvless2}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
+    sed -i "s/10814/${localportvless2_transparent}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
     sed -i "s/10829/${localporttrojan}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
     echo "Установлено перенаправление пакетов с адресатами из unblock в: Tor, Shadowsocks, VPN, Trojan, v2ray"
 
@@ -369,6 +375,8 @@ if [ "$1" = "-update" ]; then
     sed -i "s/10810/${localportvmess}/g" "$stage_dir/100-redirect.sh"
     sed -i "s/10811/${localportvless}/g" "$stage_dir/100-redirect.sh"
     sed -i "s/10812/${localportvless_transparent}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/10813/${localportvless2}/g" "$stage_dir/100-redirect.sh"
+    sed -i "s/10814/${localportvless2_transparent}/g" "$stage_dir/100-redirect.sh"
     sed -i "s/10829/${localporttrojan}/g" "$stage_dir/100-redirect.sh"
     sed -i "s/40500/${dnsovertlsport}/g" "$stage_dir/unblock_ipset.sh"
     sed -i "s/40500/${dnsovertlsport}/g" "$stage_dir/unblock_dnsmasq.sh"

@@ -15,6 +15,7 @@ flush_set unblocktor
 flush_set unblocksh
 flush_set unblockvmess
 flush_set unblockvless
+flush_set unblockvless2
 flush_set unblocktroj
 flush_set unblockvpn
 

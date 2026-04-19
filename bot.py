@@ -52,6 +52,8 @@ localporttrojan = config.localporttrojan
 localportvmess = config.localportvmess
 localportvless = config.localportvless
 localportvless_transparent = str(int(localportvless) + 1)
+localportvless2 = str(int(localportvless) + 2)
+localportvless2_transparent = str(int(localportvless) + 3)
 localportsh_bot = str(getattr(config, 'localportsh_bot', 10820))
 localporttrojan_bot = str(getattr(config, 'localporttrojan_bot', 10830))
 dnsporttor = config.dnsporttor
@@ -79,6 +81,7 @@ CORE_PROXY_ERROR_LOG = os.path.join(CORE_PROXY_CONFIG_DIR, 'error.log')
 CORE_PROXY_ACCESS_LOG = os.path.join(CORE_PROXY_CONFIG_DIR, 'access.log')
 VMESS_KEY_PATH = os.path.join(CORE_PROXY_CONFIG_DIR, 'vmess.key')
 VLESS_KEY_PATH = os.path.join(CORE_PROXY_CONFIG_DIR, 'vless.key')
+VLESS2_KEY_PATH = os.path.join(CORE_PROXY_CONFIG_DIR, 'vless2.key')
 
 bot_ready = False
 bot_polling = False
@@ -88,6 +91,7 @@ proxy_settings = {
     'shadowsocks': f'socks5h://127.0.0.1:{localportsh_bot}',
     'vmess': f'socks5h://127.0.0.1:{localportvmess}',
     'vless': f'socks5h://127.0.0.1:{localportvless}',
+    'vless2': f'socks5h://127.0.0.1:{localportvless2}',
     'trojan': f'socks5h://127.0.0.1:{localporttrojan_bot}',
 }
 proxy_supports_http = {
@@ -95,6 +99,7 @@ proxy_supports_http = {
     'shadowsocks': True,
     'vmess': True,
     'vless': True,
+    'vless2': True,
     'trojan': True,
 }
 web_status_cache = {
@@ -154,7 +159,8 @@ def _proxy_mode_label(proxy_type):
         'none': 'None',
         'shadowsocks': 'Shadowsocks',
         'vmess': 'Vmess',
-        'vless': 'Vless',
+        'vless': 'Vless 1',
+        'vless2': 'Vless 2',
         'trojan': 'Trojan',
     }
     return labels.get(proxy_type, proxy_type)
@@ -297,6 +303,7 @@ def _install_proxy_from_message(message, key_type, key_value, reply_markup):
         'shadowsocks': shadowsocks,
         'vmess': vmess,
         'vless': vless,
+        'vless2': vless2,
         'trojan': trojan,
     }
     try:
@@ -463,7 +470,8 @@ def _list_label(file_name):
         'shadowsocks': 'Shadowsocks',
         'tor': 'Tor',
         'vmess': 'Vmess',
-        'vless': 'Vless',
+        'vless': 'Vless 1',
+        'vless-2': 'Vless 2',
         'trojan': 'Trojan',
         'vpn': 'VPN (общий список)',
     }
@@ -479,7 +487,7 @@ def _load_unblock_lists():
     except Exception:
         file_names = []
     file_names = [name for name in file_names if name not in ['vpn.txt', 'tor.txt']]
-    preferred_order = ['vless.txt', 'vmess.txt', 'trojan.txt', 'shadowsocks.txt', 'vpn.txt', 'tor.txt']
+    preferred_order = ['vless.txt', 'vless-2.txt', 'vmess.txt', 'trojan.txt', 'shadowsocks.txt', 'vpn.txt', 'tor.txt']
     ordered = []
     for item in preferred_order:
         if item in file_names:
@@ -499,8 +507,14 @@ def _load_unblock_lists():
 
 def _transparent_list_route_label():
     config_text = _read_text_file(CORE_PROXY_CONFIG_PATH)
-    if 'in-vless-transparent' in config_text and 'proxy-vless' in config_text:
-        return 'Vless'
+    has_vless_1 = 'in-vless-transparent' in config_text and 'proxy-vless' in config_text
+    has_vless_2 = 'in-vless2-transparent' in config_text and 'proxy-vless2' in config_text
+    if has_vless_1 and has_vless_2:
+        return 'Vless 1 / Vless 2'
+    if has_vless_1:
+        return 'Vless 1'
+    if has_vless_2:
+        return 'Vless 2'
     return 'Не определён'
 
 
@@ -548,6 +562,7 @@ def _load_current_keys():
         'shadowsocks': _load_shadowsocks_key(),
         'vmess': _read_v2ray_key(VMESS_KEY_PATH) or '',
         'vless': _read_v2ray_key(VLESS_KEY_PATH) or '',
+        'vless2': _read_v2ray_key(VLESS2_KEY_PATH) or '',
         'trojan': _load_trojan_key(),
     }
 
@@ -611,6 +626,7 @@ def _protocol_status_for_key(key_name, key_value):
         'shadowsocks': localportsh_bot,
         'vmess': localportvmess,
         'vless': localportvless,
+        'vless2': localportvless2,
         'trojan': localporttrojan_bot,
     }
     port = ports.get(key_name)
@@ -913,7 +929,7 @@ def _format_proxy_key_summary(key_type, key_value):
                     port=port,
                     method=method,
                     password_len=len(password))
-    if key_type == 'vless':
+    if key_type in ['vless', 'vless2']:
         data = _parse_vless_key(key_value)
         return ('Параметры VLESS: address={address}, host={host}, port={port}, uuid={id}, network={type}, '
                 'serviceName={serviceName}, sni={sni}, security={security}, flow={flow}').format(**data)
@@ -985,7 +1001,7 @@ def _parse_trojan_key(key):
 
 def _build_proxy_diagnostics(key_type, key_value):
     key_summary = _format_proxy_key_summary(key_type, key_value)
-    if key_type not in ['vmess', 'vless']:
+    if key_type not in ['vmess', 'vless', 'vless2']:
         return key_summary
     error_tail = _read_tail(CORE_PROXY_ERROR_LOG, lines=25)
     lines = [line.strip() for line in error_tail.splitlines() if line.strip()]
@@ -1020,7 +1036,7 @@ def _build_proxy_diagnostics(key_type, key_value):
 
 
 def _check_local_proxy_endpoint(key_type, port):
-    if key_type in ['shadowsocks', 'vmess', 'vless', 'trojan']:
+    if key_type in ['shadowsocks', 'vmess', 'vless', 'vless2', 'trojan']:
         if _wait_for_socks5_handshake(port, timeout=3):
             return True, f'Локальный SOCKS-порт 127.0.0.1:{port} отвечает как SOCKS5.'
         if _port_is_listening(port):
@@ -1053,8 +1069,14 @@ def _apply_installed_proxy(key_type, key_value):
             'startup_wait': 18,
         },
         'vless': {
-            'label': 'Vless',
+            'label': 'Vless 1',
             'port': localportvless,
+            'restart_cmds': [CORE_PROXY_SERVICE_SCRIPT + ' restart'],
+            'startup_wait': 18,
+        },
+        'vless2': {
+            'label': 'Vless 2',
+            'port': localportvless2,
             'restart_cmds': [CORE_PROXY_SERVICE_SCRIPT + ' restart'],
             'startup_wait': 18,
         },
@@ -1150,11 +1172,12 @@ def _web_status_snapshot(force_refresh=False):
         return web_status_cache['data']
     state_label = 'polling активен' if bot_polling else ('ожидает запуска' if not bot_ready else 'процесс запущен, polling недоступен')
     socks_details = ''
-    if proxy_mode in ['shadowsocks', 'vmess', 'vless', 'trojan']:
+    if proxy_mode in ['shadowsocks', 'vmess', 'vless', 'vless2', 'trojan']:
         port = {
             'shadowsocks': localportsh_bot,
             'vmess': localportvmess,
             'vless': localportvless,
+            'vless2': localportvless2,
             'trojan': localporttrojan_bot,
         }.get(proxy_mode)
         if port:
@@ -1517,12 +1540,20 @@ def bot_message(message):
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
-                if message.text == 'Vless':
+                if message.text == 'Vless' or message.text == 'Vless 1':
                     #bot.send_message(message.chat.id, "Скопируйте ключ сюда")
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                     back = types.KeyboardButton("🔙 Назад")
                     markup.add(back)
                     level = 11
+                    bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
+                    return
+
+                if message.text == 'Vless 2':
+                    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                    back = types.KeyboardButton("🔙 Назад")
+                    markup.add(back)
+                    level = 12
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
@@ -1550,6 +1581,11 @@ def bot_message(message):
                 _install_proxy_from_message(message, 'vless', message.text, main)
                 return
 
+            if level == 12:
+                level = 0
+                _install_proxy_from_message(message, 'vless2', message.text, main)
+                return
+
             if message.text == 'Tor вручную':
                 #bot.send_message(message.chat.id, "Скопируйте ключ сюда")
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -1562,7 +1598,7 @@ def bot_message(message):
             if message.text == '🌐 Через браузер':
                 bot.send_message(message.chat.id,
                                  f'Откройте в браузере: http://{routerip}:{browser_port}/\n'
-                                 'Введите ключ Shadowsocks, Vmess, Vless или Trojan на странице.', reply_markup=main)
+                                 'Введите ключ Shadowsocks, Vmess, Vless 1, Vless 2 или Trojan на странице.', reply_markup=main)
                 return
 
             if message.text == 'Tor через telegram':
@@ -1656,14 +1692,16 @@ def bot_message(message):
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 item1 = types.KeyboardButton("Shadowsocks")
                 item2 = types.KeyboardButton("Vmess")
-                item3 = types.KeyboardButton("Vless")
-                item4 = types.KeyboardButton("Trojan")
-                item5 = types.KeyboardButton("Где брать ключи❔")
-                item6 = types.KeyboardButton("🌐 Через браузер")
+                item3 = types.KeyboardButton("Vless 1")
+                item4 = types.KeyboardButton("Vless 2")
+                item5 = types.KeyboardButton("Trojan")
+                item6 = types.KeyboardButton("Где брать ключи❔")
+                item7 = types.KeyboardButton("🌐 Через браузер")
                 markup.add(item1, item2)
                 markup.add(item3, item4)
                 markup.add(item5)
                 markup.add(item6)
+                markup.add(item7)
                 back = types.KeyboardButton("🔙 Назад")
                 markup.add(back)
                 bot.send_message(message.chat.id, "🔑 Ключи и мосты", reply_markup=markup)
@@ -1730,7 +1768,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             'none': 'Без VPN',
             'shadowsocks': 'Shadowsocks',
             'vmess': 'Vmess',
-            'vless': 'Vless',
+            'vless': 'Vless 1',
+            'vless2': 'Vless 2',
             'trojan': 'Trojan',
         }.get(status['proxy_mode'], status['proxy_mode'])
         list_route_label = _transparent_list_route_label()
@@ -1755,7 +1794,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             <option value="none"{' selected' if proxy_mode == 'none' else ''}>Без VPN (по умолчанию)</option>
             <option value="shadowsocks"{' selected' if proxy_mode == 'shadowsocks' else ''}>Shadowsocks</option>
             <option value="vmess"{' selected' if proxy_mode == 'vmess' else ''}>Vmess</option>
-            <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless</option>
+            <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless 1</option>
+            <option value="vless2"{' selected' if proxy_mode == 'vless2' else ''}>Vless 2</option>
             <option value="trojan"{' selected' if proxy_mode == 'trojan' else ''}>Trojan</option>
         </select>
         <button type="submit">Применить режим</button>
@@ -1763,7 +1803,8 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
 </div>'''
 
         protocol_sections = [
-            ('vless', 'Vless', 6, 'vless://...'),
+            ('vless', 'Vless 1', 6, 'vless://...'),
+            ('vless2', 'Vless 2', 6, 'vless://...'),
             ('vmess', 'Vmess', 6, 'vmess://...'),
             ('trojan', 'Trojan', 5, 'trojan://...'),
             ('shadowsocks', 'Shadowsocks', 5, 'shadowsocks://...'),
@@ -2167,6 +2208,9 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             elif key_type == 'vless':
                 vless(key_value)
                 result = _apply_installed_proxy('vless', key_value)
+            elif key_type == 'vless2':
+                vless2(key_value)
+                result = _apply_installed_proxy('vless2', key_value)
             elif key_type == 'trojan':
                 trojan(key_value)
                 result = _apply_installed_proxy('trojan', key_value)
@@ -2290,7 +2334,7 @@ def _parse_vless_key(key):
     }
 
 
-def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, trojan_key=None):
+def _build_v2ray_config(vmess_key=None, vless_key=None, vless2_key=None, shadowsocks_key=None, trojan_key=None):
     config_data = {
         'log': {
             'access': CORE_PROXY_ACCESS_LOG,
@@ -2405,10 +2449,12 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, tr
             'enabled': True
         })
 
-    if vless_key:
-        vless_data = _parse_vless_key(vless_key)
+    def add_vless_route(key_value, socks_port, transparent_port, socks_tag, transparent_tag, outbound_tag):
+        if not key_value:
+            return
+        vless_data = _parse_vless_key(key_value)
         config_data['inbounds'].append({
-            'port': int(localportvless),
+            'port': int(socks_port),
             'listen': '127.0.0.1',
             'protocol': 'socks',
             'settings': {
@@ -2417,10 +2463,10 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, tr
                 'ip': '127.0.0.1'
             },
             'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']},
-            'tag': 'in-vless'
+            'tag': socks_tag
         })
         config_data['inbounds'].append({
-            'port': int(localportvless_transparent),
+            'port': int(transparent_port),
             'listen': '0.0.0.0',
             'protocol': 'dokodemo-door',
             'settings': {
@@ -2428,11 +2474,9 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, tr
                 'followRedirect': True
             },
             'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']},
-            'tag': 'in-vless-transparent'
+            'tag': transparent_tag
         })
-        network = vless_data.get('type', 'tcp')
-        if network == '':
-            network = 'tcp'
+        network = vless_data.get('type', 'tcp') or 'tcp'
         stream_settings = {'network': network}
         security = vless_data.get('security', 'none')
         if security in ['tls', 'xtls']:
@@ -2465,7 +2509,7 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, tr
             if vless_data.get('alpn'):
                 stream_settings['realitySettings']['alpn'] = [item.strip() for item in vless_data['alpn'].split(',') if item.strip()]
         config_data['outbounds'].append({
-            'tag': 'proxy-vless',
+            'tag': outbound_tag,
             'domainStrategy': 'UseIPv4',
             'protocol': 'vless',
             'settings': {
@@ -2484,10 +2528,13 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, tr
         })
         config_data['routing']['rules'].append({
             'type': 'field',
-            'inboundTag': ['in-vless', 'in-vless-transparent'],
-            'outboundTag': 'proxy-vless',
+            'inboundTag': [socks_tag, transparent_tag],
+            'outboundTag': outbound_tag,
             'enabled': True
         })
+
+    add_vless_route(vless_key, localportvless, localportvless_transparent, 'in-vless', 'in-vless-transparent', 'proxy-vless')
+    add_vless_route(vless2_key, localportvless2, localportvless2_transparent, 'in-vless2', 'in-vless2-transparent', 'proxy-vless2')
 
     if trojan_key:
         trojan_data = _parse_trojan_key(trojan_key)
@@ -2558,8 +2605,8 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, tr
     return config_data
 
 
-def _write_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, trojan_key=None):
-    config_json = _build_v2ray_config(vmess_key, vless_key, shadowsocks_key, trojan_key)
+def _write_v2ray_config(vmess_key=None, vless_key=None, vless2_key=None, shadowsocks_key=None, trojan_key=None):
+    config_json = _build_v2ray_config(vmess_key, vless_key, vless2_key, shadowsocks_key, trojan_key)
     os.makedirs(CORE_PROXY_CONFIG_DIR, exist_ok=True)
     with open(CORE_PROXY_CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(config_json, f, ensure_ascii=False, indent=2)
@@ -2569,6 +2616,7 @@ def _write_all_proxy_core_config():
     _write_v2ray_config(
         _read_v2ray_key(VMESS_KEY_PATH),
         _read_v2ray_key(VLESS_KEY_PATH),
+        _read_v2ray_key(VLESS2_KEY_PATH),
         _load_shadowsocks_key(),
         _load_trojan_key(),
     )
@@ -2577,6 +2625,12 @@ def _write_all_proxy_core_config():
 def vless(key):
     _parse_vless_key(key)
     _save_v2ray_key(VLESS_KEY_PATH, key)
+    _write_all_proxy_core_config()
+
+
+def vless2(key):
+    _parse_vless_key(key)
+    _save_v2ray_key(VLESS2_KEY_PATH, key)
     _write_all_proxy_core_config()
 
 
@@ -2723,11 +2777,12 @@ def main():
     if not ok:
         proxy_mode = config.default_proxy_mode
         update_proxy(proxy_mode)
-    elif proxy_mode in ['shadowsocks', 'vmess', 'vless', 'trojan']:
+    elif proxy_mode in ['shadowsocks', 'vmess', 'vless', 'vless2', 'trojan']:
         startup_settings = {
             'shadowsocks': localportsh_bot,
             'vmess': localportvmess,
             'vless': localportvless,
+            'vless2': localportvless2,
             'trojan': localporttrojan_bot,
         }
         startup_port = startup_settings.get(proxy_mode)

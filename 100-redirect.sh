@@ -129,6 +129,44 @@ if ! iptables -C FORWARD -w -p udp -m set --match-set unblockvless dst --dport 4
 fi
 
 
+ipset create unblockvless2 hash:net -exist 2>/dev/null
+while iptables -t nat -C PREROUTING -w -p tcp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10813 2>/dev/null; do
+	iptables -t nat -D PREROUTING -w -p tcp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10813
+done
+while iptables -t nat -C PREROUTING -w -p tcp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814 2>/dev/null; do
+	iptables -t nat -D PREROUTING -w -p tcp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814
+done
+while iptables -t nat -C PREROUTING -w -p udp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10813 2>/dev/null; do
+	iptables -t nat -D PREROUTING -w -p udp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10813
+done
+while iptables -t nat -C PREROUTING -w -p udp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814 2>/dev/null; do
+	iptables -t nat -D PREROUTING -w -p udp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814
+done
+while iptables -C FORWARD -w -p udp -m set --match-set unblockvless2 dst --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null; do
+	iptables -D FORWARD -w -p udp -m set --match-set unblockvless2 dst --dport 443 -j REJECT --reject-with icmp-port-unreachable
+done
+
+vless2_key_path=""
+for candidate in /opt/etc/xray/vless2.key /opt/etc/v2ray/vless2.key; do
+	if [ -s "$candidate" ]; then
+		vless2_key_path="$candidate"
+		break
+	fi
+done
+
+if [ -n "$vless2_key_path" ]; then
+	if ! iptables -t nat -C PREROUTING -w -p tcp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814 2>/dev/null; then
+		iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814
+	fi
+	if ! iptables -t nat -C PREROUTING -w -p udp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814 2>/dev/null; then
+		iptables -I PREROUTING -w -t nat -p udp -m set --match-set unblockvless2 dst -j REDIRECT --to-port 10814
+	fi
+	if ! iptables -C FORWARD -w -p udp -m set --match-set unblockvless2 dst --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null; then
+		iptables -I FORWARD -w -p udp -m set --match-set unblockvless2 dst --dport 443 -j REJECT --reject-with icmp-port-unreachable
+	fi
+fi
+
+
 if [ -z "$(iptables-save 2>/dev/null | grep unblocktroj)" ]; then
   ipset create unblocktroj hash:net -exist 2>/dev/null
 	iptables -I PREROUTING -w -t nat -p tcp -m set --match-set unblocktroj dst -j REDIRECT --to-port 10829
