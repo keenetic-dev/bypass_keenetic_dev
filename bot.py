@@ -568,16 +568,31 @@ def _restart_router_services():
     return '✅ Сервисы перезагружены.'
 
 
+def _schedule_router_reboot(delay_seconds=5):
+    delay = max(1, int(delay_seconds))
+    subprocess.Popen(
+        ['/bin/sh', '-c', f'sleep {delay}; ndmc -c "system reboot" >/dev/null 2>&1'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
+
+
 def _set_dns_override(enabled):
+    _save_bot_autostart(True)
     if enabled:
         os.system("ndmc -c 'opkg dns-override'")
         time.sleep(2)
         os.system("ndmc -c 'system configuration save'")
-        return '✅ DNS Override включен. Для применения роутер будет перезагружен.'
+        _schedule_router_reboot()
+        return '✅ DNS Override включен. Роутер будет автоматически перезагружен через несколько секунд.'
     os.system("ndmc -c 'no opkg dns-override'")
     time.sleep(2)
     os.system("ndmc -c 'system configuration save'")
-    return '✅ DNS Override выключен. Для применения роутер будет перезагружен.'
+    _schedule_router_reboot()
+    return '✅ DNS Override выключен. Роутер будет автоматически перезагружен через несколько секунд.'
 
 
 def _run_web_command(command):
@@ -1600,23 +1615,19 @@ def bot_message(message):
 
             if message.text == "✅ DNS Override ВКЛ" or message.text == "❌ DNS Override ВЫКЛ":
                 if message.text == "✅ DNS Override ВКЛ":
-                    os.system("ndmc -c 'opkg dns-override'")
-                    time.sleep(2)
-                    os.system("ndmc -c 'system configuration save'")
-                    bot.send_message(message.chat.id, '✅ DNS Override включен!\n🔄 Роутер перезагружается.',
-                                     reply_markup=service)
-                    time.sleep(5)
-                    os.system("ndmc -c 'system reboot'")
+                    bot.send_message(
+                        message.chat.id,
+                        _set_dns_override(True),
+                        reply_markup=service,
+                    )
                     return
 
                 if message.text == "❌ DNS Override ВЫКЛ":
-                    os.system("ndmc -c 'no opkg dns-override'")
-                    time.sleep(2)
-                    os.system("ndmc -c 'system configuration save'")
-                    bot.send_message(message.chat.id, '✅ DNS Override выключен!\n🔄 Роутер перезагружается.',
-                                     reply_markup=service)
-                    time.sleep(5)
-                    os.system("ndmc -c 'system reboot'")
+                    bot.send_message(
+                        message.chat.id,
+                        _set_dns_override(False),
+                        reply_markup=service,
+                    )
                     return
 
                 service_router_reboot = "🔄 Роутер перезагружается!\n⏳ Это займет около 2 минут."
