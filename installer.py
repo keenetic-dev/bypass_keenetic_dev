@@ -64,7 +64,7 @@ def build_config(form):
     fork_button_label = f'Fork by {fork_repo_owner}'
     default_proxy_mode = form.get('default_proxy_mode', 'none').strip() or 'none'
 
-    return f"""# ВЕРСИЯ СКРИПТА 2.2.0
+    return f"""# ВЕРСИЯ СКРИПТА 2.2.1
 
 token = '{escape_python(form['token'])}'
 usernames = ['{escape_python(form['username'])}']

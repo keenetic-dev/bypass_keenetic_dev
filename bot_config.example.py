@@ -1,4 +1,4 @@
-# ВЕРСИЯ СКРИПТА 2.2.0
+# ВЕРСИЯ СКРИПТА 2.2.1
 
 token = 'MyBotFatherToken'  # ключ api бота
 usernames = ['MyTelegramLogin']  # Ваш логин в телеграмме без @, не бота.
@@ -23,6 +23,6 @@ localporttor = '9141'  # локальный порт для тор
 localportvmess = '10810'  # локальный порт для vmess
 localportvless = '10811'  # локальный порт для vless
 localporttrojan = '10829'  # локальный порт для trojan
-default_proxy_mode = 'none'  # выбор прокси для Telegram API: none, shadowsocks, vmess, vless, trojan
+default_proxy_mode = 'none'  # выбор прокси для Telegram API: none, shadowsocks, vmess, vless, vless2, trojan
 dnsovertlsport = '40500'  # можно посмотреть номер порта командой "cat /tmp/ndnproxymain.stat"
 dnsoverhttpsport = '40508'  # можно посмотреть номер порта командой "cat /tmp/ndnproxymain.stat"

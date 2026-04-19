@@ -16,6 +16,7 @@ import sys
 import time
 import threading
 import signal
+import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
@@ -54,8 +55,6 @@ dnsovertlsport = config.dnsovertlsport
 dnsoverhttpsport = config.dnsoverhttpsport
 
 bot = telebot.TeleBot(token)
-level = 0
-bypass = -1
 sid = "0"
 PROXY_MODE_FILE = '/opt/etc/bot_proxy_mode'
 BOT_AUTOSTART_FILE = '/opt/etc/bot_autostart'
@@ -109,7 +108,7 @@ status_snapshot_cache = {
     'signature': None,
 }
 status_refresh_lock = threading.Lock()
-status_refresh_running = False
+status_refresh_in_progress = set()
 process_started_at = time.time()
 web_command_lock = threading.Lock()
 web_command_state = {
@@ -136,6 +135,9 @@ RUNTIME_ERROR_LOG_PATHS = [
     '/opt/etc/error.log',
     '/opt/etc/bot/error.log',
 ]
+MENU_STATE_UNSET = object()
+chat_menu_state_lock = threading.Lock()
+chat_menu_states = {}
 
 
 def _normalize_username(value):
@@ -183,12 +185,37 @@ def _raw_github_url(path):
     return f'https://raw.githubusercontent.com/{fork_repo_owner}/{fork_repo_name}/main/{path}?ts={int(time.time())}'
 
 
+def _fetch_remote_text(url, timeout=20):
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    return response.text
+
+
+def _get_chat_menu_state(chat_id):
+    with chat_menu_state_lock:
+        state = chat_menu_states.get(chat_id)
+        if state is None:
+            state = {'level': 0, 'bypass': None}
+            chat_menu_states[chat_id] = state
+        return dict(state)
+
+
+def _set_chat_menu_state(chat_id, level=MENU_STATE_UNSET, bypass=MENU_STATE_UNSET):
+    with chat_menu_state_lock:
+        state = chat_menu_states.get(chat_id)
+        if state is None:
+            state = {'level': 0, 'bypass': None}
+            chat_menu_states[chat_id] = state
+        if level is not MENU_STATE_UNSET:
+            state['level'] = level
+        if bypass is not MENU_STATE_UNSET:
+            state['bypass'] = bypass
+
+
 def _telegram_info_text_from_readme():
     readme_text = ''
     try:
-        response = requests.get(_raw_github_url('README.md'), timeout=20)
-        response.raise_for_status()
-        readme_text = response.text
+        readme_text = _fetch_remote_text(_raw_github_url('README.md'))
     except Exception:
         readme_text = _read_text_file(README_PATH)
 
@@ -588,6 +615,26 @@ def _send_telegram_chunks(chat_id, text, reply_markup=None):
         bot.send_message(chat_id, chunk, reply_markup=reply_markup)
 
 
+def _unblock_list_path(list_name):
+    return os.path.join('/opt/etc/unblock', f'{list_name}.txt')
+
+
+def _read_unblock_list_entries(list_name):
+    list_path = _unblock_list_path(list_name)
+    if not os.path.exists(list_path):
+        raise FileNotFoundError(list_path)
+    with open(list_path, encoding='utf-8') as file:
+        return [line.strip() for line in file if line.strip()]
+
+
+def _write_unblock_list_entries(list_name, entries):
+    list_path = _unblock_list_path(list_name)
+    with open(list_path, 'w', encoding='utf-8') as file:
+        for line in sorted(set(entries)):
+            if line:
+                file.write(line + '\n')
+
+
 def _build_main_menu_markup():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     item1 = types.KeyboardButton("🔰 Установка и удаление")
@@ -895,6 +942,20 @@ def _read_text_file(file_path):
         return ''
 
 
+def _current_bot_version():
+    source_text = _read_text_file(BOT_SOURCE_PATH)
+    match = re.search(r'^#\s*ВЕРСИЯ СКРИПТА\s+(.+?)\s*$', source_text, flags=re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r'Версия\s+([0-9][0-9.]*)', source_text)
+    if match:
+        return match.group(1).strip()
+    for line in source_text.splitlines():
+        if line.startswith('# ВЕРСИЯ СКРИПТА'):
+            return line.replace('# ВЕРСИЯ СКРИПТА', '').strip()
+    return 'неизвестна'
+
+
 def _normalize_unblock_list(text):
     items = []
     seen = set()
@@ -918,7 +979,7 @@ def _save_unblock_list(list_name, text):
     with open(target_path, 'w', encoding='utf-8') as file:
         if normalized:
             file.write(normalized + '\n')
-    subprocess.call(['/opt/bin/unblock_update.sh'])
+    subprocess.run(['/opt/bin/unblock_update.sh'], check=False)
     return f'✅ Список {safe_name} сохранён и применён.'
 
 
@@ -926,7 +987,7 @@ def _append_socialnet_list(list_name):
     safe_name = os.path.basename(list_name)
     target_path = os.path.join('/opt/etc/unblock', safe_name)
     current = _read_text_file(target_path)
-    social_text = requests.get('https://raw.githubusercontent.com/tas-unn/bypass_keenetic/main/socialnet.txt', timeout=20).text
+    social_text = _fetch_remote_text('https://raw.githubusercontent.com/tas-unn/bypass_keenetic/main/socialnet.txt')
     return _save_unblock_list(safe_name, current + '\n' + social_text)
 
 
@@ -1840,8 +1901,12 @@ def _build_web_status(current_keys, protocols=None):
     return snapshot
 
 
+def _status_snapshot_signature(current_keys):
+    return tuple((name, current_keys.get(name, '')) for name in sorted(current_keys))
+
+
 def _build_status_snapshot(current_keys, force_refresh=False):
-    signature = tuple((name, current_keys.get(name, '')) for name in sorted(current_keys))
+    signature = _status_snapshot_signature(current_keys)
     now = time.time()
     if (
         not force_refresh and
@@ -1880,7 +1945,7 @@ def _web_status_snapshot(force_refresh=False):
 
 def _cached_status_snapshot(current_keys):
     now = time.time()
-    signature = tuple((name, current_keys.get(name, '')) for name in sorted(current_keys))
+    signature = _status_snapshot_signature(current_keys)
     if (
         status_snapshot_cache['data'] is not None and
         status_snapshot_cache['signature'] == signature and
@@ -1912,21 +1977,20 @@ def _cached_protocol_status_snapshot(current_keys):
 
 
 def _refresh_status_caches_async(current_keys):
-    global status_refresh_running
+    signature = _status_snapshot_signature(current_keys)
     with status_refresh_lock:
-        if status_refresh_running:
+        if signature in status_refresh_in_progress:
             return
-        status_refresh_running = True
+        status_refresh_in_progress.add(signature)
 
     def worker():
-        global status_refresh_running
         try:
             _build_status_snapshot(current_keys, force_refresh=True)
         except Exception as exc:
             _write_runtime_log(f'Ошибка фонового обновления статусов: {exc}')
         finally:
             with status_refresh_lock:
-                status_refresh_running = False
+                status_refresh_in_progress.discard(signature)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -1938,6 +2002,7 @@ def start(message):
     if not authorized:
         _send_unauthorized_message(message, reason)
         return
+    _set_chat_menu_state(message.chat.id, level=0, bypass=None)
     markup = _build_main_menu_markup()
     bot.send_message(message.chat.id, '✅ Добро пожаловать в меню!', reply_markup=markup)
 
@@ -1969,7 +2034,17 @@ def bot_message(message):
         service.add(back)
 
         if message.chat.type == 'private':
-            global level, bypass
+            state = _get_chat_menu_state(message.chat.id)
+            level = state['level']
+            bypass = state['bypass']
+
+            def set_menu_state(new_level=MENU_STATE_UNSET, new_bypass=MENU_STATE_UNSET):
+                nonlocal level, bypass
+                if new_level is not MENU_STATE_UNSET:
+                    level = new_level
+                if new_bypass is not MENU_STATE_UNSET:
+                    bypass = new_bypass
+                _set_chat_menu_state(message.chat.id, level=level, bypass=bypass)
 
             if message.text == '⚙️ Сервис':
                 bot.send_message(message.chat.id, '⚙️ Сервисное меню!', reply_markup=service)
@@ -2017,10 +2092,6 @@ def bot_message(message):
                     )
                     return
 
-                service_router_reboot = "🔄 Роутер перезагружается!\n⏳ Это займет около 2 минут."
-                bot.send_message(message.chat.id, service_router_reboot, reply_markup=service)
-                return
-
             if message.text == '📄 Информация':
                 info_bot = _telegram_info_text_from_readme()
                 bot.send_message(
@@ -2034,20 +2105,22 @@ def bot_message(message):
 
             if message.text == '/keys_free':
                 url = _raw_github_url('keys.md')
-                keys_free = requests.get(url).text
+                try:
+                    keys_free = _fetch_remote_text(url)
+                except requests.RequestException as exc:
+                    bot.send_message(message.chat.id, f'⚠️ Не удалось загрузить список ключей: {exc}', reply_markup=main)
+                    return
                 bot.send_message(message.chat.id, keys_free, parse_mode='Markdown', disable_web_page_preview=True)
                 return
 
             if message.text == '🔄 Обновления' or message.text == '/check_update':
                 url = _raw_github_url('version.md')
-                bot_new_version = requests.get(url).text
-
-                with open(BOT_SOURCE_PATH, encoding='utf-8') as file:
-                    for line in file.readlines():
-                        if line.startswith('# ВЕРСИЯ СКРИПТА'):
-                            s = line.replace('# ', '')
-                            bot_version = s.strip()
-
+                try:
+                    bot_new_version = _fetch_remote_text(url)
+                except requests.RequestException as exc:
+                    bot.send_message(message.chat.id, f'⚠️ Не удалось проверить обновления: {exc}', reply_markup=service)
+                    return
+                bot_version = _current_bot_version()
                 service_bot_version = "*ВАША ТЕКУЩАЯ " + str(bot_version) + "*\n\n"
                 service_new_version = "*ПОСЛЕДНЯЯ ДОСТУПНАЯ ВЕРСИЯ:*\n\n" + str(bot_new_version)
                 service_update_info = service_bot_version + service_new_version
@@ -2080,8 +2153,7 @@ def bot_message(message):
 
             if message.text == '🔙 Назад' or message.text == "Назад":
                 bot.send_message(message.chat.id, '✅ Добро пожаловать в меню!', reply_markup=main)
-                level = 0
-                bypass = -1
+                set_menu_state(0, None)
                 return
 
             if level == 1:
@@ -2099,8 +2171,7 @@ def bot_message(message):
                         back = types.KeyboardButton("🔙 Назад")
                         markup.row(item1, item2, item3)
                         markup.row(back)
-                        level = 2
-                        bypass = selected_list
+                        set_menu_state(2, selected_list)
                         bot.send_message(message.chat.id, "Меню " + _list_label(fln), reply_markup=markup)
                         return
 
@@ -2111,20 +2182,15 @@ def bot_message(message):
                 return
 
             if level == 2 and message.text == "📑 Показать список":
-                file = open('/opt/etc/unblock/' + bypass + '.txt')
-                flag = True
-                s = ''
-                sites = []
-                for line in file:
-                    sites.append(line)
-                    flag = False
-                if flag:
-                    s = 'Список пуст'
-                file.close()
-                sites.sort()
-                if not flag:
-                    for line in sites:
-                        s = str(s) + '\n' + line.replace("\n", "")
+                try:
+                    sites = sorted(_read_unblock_list_entries(bypass))
+                except FileNotFoundError:
+                    bot.send_message(message.chat.id, '⚠️ Файл списка не найден. Откройте список заново.', reply_markup=main)
+                    set_menu_state(1, None)
+                    return
+                s = 'Список пуст'
+                if sites:
+                    s = '\n'.join(sites)
                 if len(s) > 4096:
                     for x in range(0, len(s), 4096):
                         bot.send_message(message.chat.id, s[x:x + 4096])
@@ -2149,7 +2215,7 @@ def bot_message(message):
                 item1 = types.KeyboardButton("Добавить обход блокировок соцсетей")
                 back = types.KeyboardButton("🔙 Назад")
                 markup.add(item1, back)
-                level = 3
+                set_menu_state(3)
                 bot.send_message(message.chat.id, "Меню " + bypass, reply_markup=markup)
                 return
 
@@ -2160,20 +2226,26 @@ def bot_message(message):
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 back = types.KeyboardButton("🔙 Назад")
                 markup.add(back)
-                level = 4
+                set_menu_state(4)
                 bot.send_message(message.chat.id, "Меню " + bypass, reply_markup=markup)
                 return
 
             if level == 3:
-                f = open('/opt/etc/unblock/' + bypass + '.txt')
-                mylist = set()
-                for line in f:
-                    mylist.add(line.replace('\n', ''))
-                f.close()
+                try:
+                    mylist = set(_read_unblock_list_entries(bypass))
+                except FileNotFoundError:
+                    bot.send_message(message.chat.id, '⚠️ Файл списка не найден. Откройте список заново.', reply_markup=main)
+                    set_menu_state(1, None)
+                    return
                 k = len(mylist)
                 if message.text == "Добавить обход блокировок соцсетей":
                     url = "https://raw.githubusercontent.com/tas-unn/bypass_keenetic/main/socialnet.txt"
-                    s = requests.get(url).text
+                    try:
+                        s = _fetch_remote_text(url)
+                    except requests.RequestException as exc:
+                        bot.send_message(message.chat.id, f'⚠️ Не удалось загрузить список соцсетей: {exc}', reply_markup=main)
+                        set_menu_state(2)
+                        return
                     lst = s.split('\n')
                     for line in lst:
                         if len(line) > 1:
@@ -2183,14 +2255,8 @@ def bot_message(message):
                         mas = message.text.split('\n')
                         for site in mas:
                             mylist.add(site)
-                sortlist = []
-                for line in mylist:
-                    sortlist.append(line)
-                sortlist.sort()
-                f = open('/opt/etc/unblock/' + bypass + '.txt', 'w')
-                for line in sortlist:
-                    f.write(line + '\n')
-                f.close()
+                sortlist = sorted(mylist)
+                _write_unblock_list_entries(bypass, sortlist)
                 if k != len(sortlist):
                     bot.send_message(message.chat.id, "✅ Успешно добавлено")
                 else:
@@ -2202,25 +2268,23 @@ def bot_message(message):
                 back = types.KeyboardButton("🔙 Назад")
                 markup.row(item1, item2, item3)
                 markup.row(back)
-                subprocess.call(["/opt/bin/unblock_update.sh"])
-                level = 2
+                subprocess.run(["/opt/bin/unblock_update.sh"], check=False)
+                set_menu_state(2)
                 bot.send_message(message.chat.id, "Меню " + bypass, reply_markup=markup)
                 return
 
             if level == 4:
-                f = open('/opt/etc/unblock/' + bypass + '.txt')
-                mylist = set()
-                for line in f:
-                    mylist.add(line.replace('\n', ''))
-                f.close()
+                try:
+                    mylist = set(_read_unblock_list_entries(bypass))
+                except FileNotFoundError:
+                    bot.send_message(message.chat.id, '⚠️ Файл списка не найден. Откройте список заново.', reply_markup=main)
+                    set_menu_state(1, None)
+                    return
                 k = len(mylist)
                 mas = message.text.split('\n')
                 for site in mas:
                     mylist.discard(site)
-                f = open('/opt/etc/unblock/' + bypass + '.txt', 'w')
-                for line in mylist:
-                    f.write(line + '\n')
-                f.close()
+                _write_unblock_list_entries(bypass, mylist)
                 if k != len(mylist):
                     bot.send_message(message.chat.id, "✅ Успешно удалено")
                 else:
@@ -2232,20 +2296,20 @@ def bot_message(message):
                 back = types.KeyboardButton("🔙 Назад")
                 markup.row(item1, item2, item3)
                 markup.row(back)
-                level = 2
-                subprocess.call(["/opt/bin/unblock_update.sh"])
+                set_menu_state(2)
+                subprocess.run(["/opt/bin/unblock_update.sh"], check=False)
                 bot.send_message(message.chat.id, "Меню " + bypass, reply_markup=markup)
                 return
 
             if level == 5:
-                level = 0
+                set_menu_state(0)
                 _install_proxy_from_message(message, 'shadowsocks', message.text, main)
                 return
 
             if level == 6:
                 tormanually(message.text)
                 os.system('/opt/etc/init.d/S35tor restart')
-                level = 0
+                set_menu_state(0)
                 bot.send_message(message.chat.id, '✅ Успешно обновлено', reply_markup=main)
                 # return
 
@@ -2253,9 +2317,13 @@ def bot_message(message):
                 # значит это ключи и мосты
                 if message.text == 'Где брать ключи❔':
                     url = _raw_github_url('keys.md')
-                    keys = requests.get(url).text
+                    try:
+                        keys = _fetch_remote_text(url)
+                    except requests.RequestException as exc:
+                        bot.send_message(message.chat.id, f'⚠️ Не удалось загрузить справку по ключам: {exc}', reply_markup=main)
+                        return
                     bot.send_message(message.chat.id, keys, parse_mode='Markdown', disable_web_page_preview=True)
-                    level = 8
+                    set_menu_state(8)
 
                 if message.text == 'Tor':
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -2271,7 +2339,7 @@ def bot_message(message):
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                     back = types.KeyboardButton("🔙 Назад")
                     markup.add(back)
-                    level = 5
+                    set_menu_state(5)
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
@@ -2280,7 +2348,7 @@ def bot_message(message):
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                     back = types.KeyboardButton("🔙 Назад")
                     markup.add(back)
-                    level = 9
+                    set_menu_state(9)
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
@@ -2289,7 +2357,7 @@ def bot_message(message):
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                     back = types.KeyboardButton("🔙 Назад")
                     markup.add(back)
-                    level = 11
+                    set_menu_state(11)
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
@@ -2297,7 +2365,7 @@ def bot_message(message):
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                     back = types.KeyboardButton("🔙 Назад")
                     markup.add(back)
-                    level = 12
+                    set_menu_state(12)
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
@@ -2306,27 +2374,27 @@ def bot_message(message):
                     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                     back = types.KeyboardButton("🔙 Назад")
                     markup.add(back)
-                    level = 10
+                    set_menu_state(10)
                     bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                     return
 
             if level == 9:
-                level = 0
+                set_menu_state(0)
                 _install_proxy_from_message(message, 'vmess', message.text, main)
                 return
 
             if level == 10:
-                level = 0
+                set_menu_state(0)
                 _install_proxy_from_message(message, 'trojan', message.text, main)
                 return
 
             if level == 11:
-                level = 0
+                set_menu_state(0)
                 _install_proxy_from_message(message, 'vless', message.text, main)
                 return
 
             if level == 12:
-                level = 0
+                set_menu_state(0)
                 _install_proxy_from_message(message, 'vless2', message.text, main)
                 return
 
@@ -2335,7 +2403,7 @@ def bot_message(message):
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 back = types.KeyboardButton("🔙 Назад")
                 markup.add(back)
-                level = 6
+                set_menu_state(6)
                 bot.send_message(message.chat.id, "🔑 Скопируйте ключ сюда", reply_markup=markup)
                 return
 
@@ -2348,7 +2416,7 @@ def bot_message(message):
             if message.text == 'Tor через telegram':
                 tor()
                 os.system('/opt/etc/init.d/S35tor restart')
-                level = 0
+                set_menu_state(0)
                 bot.send_message(message.chat.id, '✅ Успешно обновлено', reply_markup=main)
                 return
 
@@ -2390,7 +2458,7 @@ def bot_message(message):
                 return
 
             if message.text == "📝 Списки обхода":
-                level = 1
+                set_menu_state(1, None)
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 options = _telegram_unblock_list_options()
                 buttons = [types.KeyboardButton(label) for label, _ in options]
@@ -2402,7 +2470,7 @@ def bot_message(message):
                 return
 
             if message.text == "🔑 Ключи и мосты":
-                level = 8
+                set_menu_state(8, None)
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 item1 = types.KeyboardButton("Shadowsocks")
                 item2 = types.KeyboardButton("Vmess")
@@ -2422,9 +2490,19 @@ def bot_message(message):
                 return
 
     except Exception as error:
-        _write_runtime_log(error, mode='w')
+        _write_runtime_log(traceback.format_exc(), mode='w')
         try:
             os.chmod(r"/opt/etc/error.log", 0o0755)
+        except Exception:
+            pass
+        try:
+            if getattr(getattr(message, 'chat', None), 'type', None) == 'private':
+                _set_chat_menu_state(message.chat.id, level=0, bypass=None)
+                bot.send_message(
+                    message.chat.id,
+                    f'⚠️ Команда не выполнена из-за внутренней ошибки: {error}',
+                    reply_markup=_build_main_menu_markup(),
+                )
         except Exception:
             pass
 
