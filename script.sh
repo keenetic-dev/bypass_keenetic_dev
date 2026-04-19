@@ -66,8 +66,34 @@ detect_core_proxy_package() {
   printf '%s' 'v2ray'
 }
 
+preferred_core_service() {
+  if [ -x /opt/etc/init.d/S24xray ]; then
+    printf '%s' '/opt/etc/init.d/S24xray'
+    return 0
+  fi
+  if [ -x /opt/etc/init.d/S24v2ray ]; then
+    printf '%s' '/opt/etc/init.d/S24v2ray'
+    return 0
+  fi
+  return 1
+}
+
+start_preferred_core_service() {
+  preferred_core=$(preferred_core_service 2>/dev/null || true)
+
+  if [ -x /opt/etc/init.d/S24xray ] && [ "$preferred_core" != "/opt/etc/init.d/S24xray" ]; then
+    /opt/etc/init.d/S24xray stop > /dev/null 2>&1 || true
+  fi
+  if [ -x /opt/etc/init.d/S24v2ray ] && [ "$preferred_core" != "/opt/etc/init.d/S24v2ray" ]; then
+    /opt/etc/init.d/S24v2ray stop > /dev/null 2>&1 || true
+  fi
+  if [ -n "$preferred_core" ]; then
+    "$preferred_core" start > /dev/null 2>&1 || true
+  fi
+}
+
 configure_core_proxy_service() {
-  core_config_source="https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/vmessconfig.json"
+  core_config_source="https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/vmessconfig.json"
 
   if [ ! -x /opt/etc/init.d/S24xray ] && [ -x /opt/sbin/xray ]; then
     cat > /opt/etc/init.d/S24xray <<'EOF'
@@ -254,7 +280,7 @@ if [ "$1" = "-install" ]; then
     # создания множеств IP-адресов unblock
     # rm -rf /opt/etc/ndm/fs.d/100-ipset.sh
     # chmod 777 /opt/etc/ndm/fs.d/100-ipset.sh || rm -rfv /opt/etc/ndm/fs.d/100-ipset.sh
-    curl -o /opt/etc/ndm/fs.d/100-ipset.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-ipset.sh
+    curl -o /opt/etc/ndm/fs.d/100-ipset.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/100-ipset.sh
     chmod 755 /opt/etc/ndm/fs.d/100-ipset.sh || chmod +x /opt/etc/ndm/fs.d/100-ipset.sh
     sed -i "s/hash:net/${set_type}/g" /opt/etc/ndm/fs.d/100-ipset.sh
     echo "Созданы файлы под множества"
@@ -262,20 +288,20 @@ if [ "$1" = "-install" ]; then
     # chmod 777 /opt/tmp/tor || rm -Rfv /opt/tmp/tor
     # chmod 777 /opt/etc/tor/torrc || rm -Rfv /opt/etc/tor/torrc
     mkdir -p /opt/tmp/tor
-    curl -o /opt/etc/tor/torrc https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/torrc
+    curl -o /opt/etc/tor/torrc https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/torrc
     sed -i "s/hash:net/${set_type}/g" /opt/etc/tor/torrc
     echo "Установлены настройки Tor"
 
     # chmod 777 /opt/etc/shadowsocks.json || rm -Rfv /opt/etc/shadowsocks.json
     # chmod 777 /opt/etc/init.d/S22shadowsocks
-    curl -o /opt/etc/shadowsocks.json https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/shadowsocks.json
+    curl -o /opt/etc/shadowsocks.json https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/shadowsocks.json
     echo "Установлены настройки Shadowsocks"
     sed -i "s/ss-local/${ssredir}/g" /opt/etc/init.d/S22shadowsocks
     chmod 0755 /opt/etc/shadowsocks.json || chmod 755 /opt/etc/init.d/S22shadowsocks || chmod +x /opt/etc/init.d/S22shadowsocks
     echo "Установлен параметр ss-redir для Shadowsocks"
 
     # chmod 777 /opt/etc/trojan/config.json || rm -Rfv /opt/etc/trojan/config.json
-    curl -o /opt/etc/trojan/config.json https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/trojanconfig.json
+    curl -o /opt/etc/trojan/config.json https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/trojanconfig.json
     configure_core_proxy_service
 
     # unblock folder and files
@@ -292,14 +318,14 @@ if [ "$1" = "-install" ]; then
 
     # unblock_ipset.sh
     # chmod 777 /opt/bin/unblock_ipset.sh || rm -rfv /opt/bin/unblock_ipset.sh
-    curl -o /opt/bin/unblock_ipset.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock_ipset.sh
+    curl -o /opt/bin/unblock_ipset.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/unblock_ipset.sh
     chmod 755 /opt/bin/unblock_ipset.sh || chmod +x /opt/bin/unblock_ipset.sh
     sed -i "s/40500/${dnsovertlsport}/g" /opt/bin/unblock_ipset.sh
     echo "Установлен скрипт для заполнения множеств unblock IP-адресами заданного списка доменов"
 
     # unblock_dnsmasq.sh
     # chmod 777 /opt/bin/unblock_dnsmasq.sh || rm -rfv /opt/bin/unblock_dnsmasq.sh
-    curl -o /opt/bin/unblock_dnsmasq.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock.dnsmasq
+    curl -o /opt/bin/unblock_dnsmasq.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/unblock.dnsmasq
     chmod 755 /opt/bin/unblock_dnsmasq.sh || chmod +x /opt/bin/unblock_dnsmasq.sh
     sed -i "s/40500/${dnsovertlsport}/g" /opt/bin/unblock_dnsmasq.sh
     /opt/bin/unblock_dnsmasq.sh
@@ -307,19 +333,19 @@ if [ "$1" = "-install" ]; then
 
     # unblock_update.sh
     # chmod 777 /opt/bin/unblock_update.sh || rm -rfv /opt/bin/unblock_update.sh
-    curl -o /opt/bin/unblock_update.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/unblock_update.sh
+    curl -o /opt/bin/unblock_update.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/unblock_update.sh
     chmod 755 /opt/bin/unblock_update.sh || chmod +x /opt/bin/unblock_update.sh
     echo "Установлен скрипт ручного принудительного обновления системы после редактирования списка доменов"
 
     # s99unblock
     # chmod 777 /opt/etc/init.d/S99unblock || rm -Rfv /opt/etc/init.d/S99unblock
-    curl -o /opt/etc/init.d/S99unblock https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/S99unblock
+    curl -o /opt/etc/init.d/S99unblock https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/S99unblock
     chmod 755 /opt/etc/init.d/S99unblock || chmod +x /opt/etc/init.d/S99unblock
     echo "Установлен cкрипт автоматического заполнения множества unblock при загрузке маршрутизатора"
 
     # 100-redirect.sh
     # chmod 777 /opt/etc/ndm/netfilter.d/100-redirect.sh || rm -rfv /opt/etc/ndm/netfilter.d/100-redirect.sh
-    curl -o /opt/etc/ndm/netfilter.d/100-redirect.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-redirect.sh
+    curl -o /opt/etc/ndm/netfilter.d/100-redirect.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/100-redirect.sh
     chmod 755 /opt/etc/ndm/netfilter.d/100-redirect.sh || chmod +x /opt/etc/ndm/netfilter.d/100-redirect.sh
     sed -i "s/hash:net/${set_type}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
     sed -i "s/192.168.1.1/${lanip}/g" /opt/etc/ndm/netfilter.d/100-redirect.sh
@@ -337,13 +363,13 @@ if [ "$1" = "-install" ]; then
     # chmod 777 /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh || rm -rfv /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh
     if [ "${keen_os_short}" = "4" ]; then
       echo "VPN для KeenOS 4+";
-      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn-v4.sh
+      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/100-unblock-vpn-v4.sh
     elif [ "${keen_os_short}" = "3" ]; then
       echo "VPN для KeenOS 3+";
-      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh
+      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/100-unblock-vpn.sh
     else
       echo "Your really KeenOS ???";
-      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh
+      curl -s -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/100-unblock-vpn.sh
     fi
     #curl -o /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/100-unblock-vpn.sh
     chmod 755 /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh || chmod +x /opt/etc/ndm/ifstatechanged.d/100-unblock-vpn.sh
@@ -352,7 +378,7 @@ if [ "$1" = "-install" ]; then
     # dnsmasq.conf
     #rm -rf /opt/etc/dnsmasq.conf
     chmod 777 /opt/etc/dnsmasq.conf || rm -rfv /opt/etc/dnsmasq.conf
-    curl -o /opt/etc/dnsmasq.conf https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/dnsmasq.conf
+    curl -o /opt/etc/dnsmasq.conf https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/dnsmasq.conf
     chmod 755 /opt/etc/dnsmasq.conf
     sed -i "s/192.168.1.1/${lanip}/g" /opt/etc/dnsmasq.conf
     sed -i "s/40500/${dnsovertlsport}/g" /opt/etc/dnsmasq.conf
@@ -362,7 +388,7 @@ if [ "$1" = "-install" ]; then
     # cron file
     #rm -rf /opt/etc/crontab
     chmod 777 /opt/etc/crontab || rm -Rfv /opt/etc/crontab
-    curl -o /opt/etc/crontab https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/crontab
+    curl -o /opt/etc/crontab https://raw.githubusercontent.com/${repo}/bypass_keenetic/${REPO_REF}/crontab
     chmod 755 /opt/etc/crontab
     echo "Установлено добавление задачи в cron для периодического обновления содержимого множества"
     /opt/bin/unblock_update.sh
@@ -501,8 +527,7 @@ if [ "$1" = "-update" ]; then
 
     /opt/etc/init.d/S56dnsmasq restart > /dev/null 2>&1
     /opt/etc/init.d/S22shadowsocks start > /dev/null 2>&1
-    /opt/etc/init.d/S24xray start > /dev/null 2>&1
-    /opt/etc/init.d/S24v2ray start > /dev/null 2>&1
+    start_preferred_core_service
     /opt/etc/init.d/S22trojan start > /dev/null 2>&1
     /opt/etc/init.d/S35tor start > /dev/null 2>&1
 

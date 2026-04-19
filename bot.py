@@ -2552,6 +2552,13 @@ def _build_v2ray_config(vmess_key=None, vless_key=None, vless2_key=None, shadows
             'error': CORE_PROXY_ERROR_LOG,
             'loglevel': 'info'
         },
+        'dns': {
+            'hosts': {
+                'api.telegram.org': '149.154.167.220'
+            },
+            'servers': ['8.8.8.8', '1.1.1.1', 'localhost'],
+            'queryStrategy': 'UseIPv4'
+        },
         'inbounds': [],
         'outbounds': [],
         'routing': {
