@@ -491,12 +491,20 @@ if [ "$1" = "-update" ]; then
     /opt/etc/init.d/S22trojan start > /dev/null 2>&1
     /opt/etc/init.d/S35tor start > /dev/null 2>&1
 
-    bot_old_version=$(grep "ВЕРСИЯ" "$BOT_CONFIG_PATH" | grep -Eo "[0-9].{1,}")
-    bot_new_version=$(grep "ВЕРСИЯ" "$BOT_MAIN_PATH" | grep -Eo "[0-9].{1,}")
+    bot_old_version=$(grep -m1 "ВЕРСИЯ" "$BOT_CONFIG_PATH" 2>/dev/null | grep -Eo "[0-9][0-9A-Za-z._ -]*" | head -n1)
+    bot_new_version=$(grep -m1 "ВЕРСИЯ" "$BOT_MAIN_PATH" 2>/dev/null | grep -Eo "[0-9][0-9A-Za-z._ -]*" | head -n1)
 
-    echo "Версия бота" "${bot_old_version}" "обновлена до" "${bot_new_version}."
+    if [ -n "$bot_old_version" ] && [ -n "$bot_new_version" ]; then
+      echo "Версия бота ${bot_old_version} обновлена до ${bot_new_version}."
+      escaped_old_version=$(printf '%s\n' "$bot_old_version" | sed 's/[\\/&]/\\\\&/g')
+      escaped_new_version=$(printf '%s\n' "$bot_new_version" | sed 's/[\\/&]/\\\\&/g')
+      sed -i "s/${escaped_old_version}/${escaped_new_version}/g" "$BOT_CONFIG_PATH" || true
+    elif [ -n "$bot_new_version" ]; then
+      echo "Версия бота обновлена до ${bot_new_version}."
+    else
+      echo "Версия бота обновлена."
+    fi
     sleep 2
-    sed -i "s/${bot_old_version}/${bot_new_version}/g" "$BOT_CONFIG_PATH"
     echo "Обновление выполнено. Сервисы перезапущены. Сейчас будет перезапущен бот (~15-30 сек)."
     sleep 7
     if [ -x "$BOT_SERVICE_PATH" ]; then
