@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" fill="none">
+  <rect width="1440" height="960" fill="#0F141C"/>
+  <rect x="44" y="36" width="1352" height="888" rx="32" fill="#121923"/>
+  <rect x="44" y="36" width="1352" height="56" rx="32" fill="#E7DCC7"/>
+  <circle cx="84" cy="64" r="10" fill="#C96F32"/>
+  <circle cx="116" cy="64" r="10" fill="#1F7A6A"/>
+  <circle cx="148" cy="64" r="10" fill="#D7C5AA"/>
+  <text x="188" y="71" fill="#3C342A" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">http://192.168.1.1:8080/</text>
+
+  <rect x="86" y="126" width="1268" height="206" rx="28" fill="url(#hero)" stroke="#334155"/>
+  <text x="124" y="186" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="800">Установка ключей VPN</text>
+  <text x="124" y="226" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="24">Страница показывает реальный статус связи с Telegram API и даёт управлять ключами без SSH.</text>
+  <text x="124" y="260" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="24">Ключи сохраняются по протоколам, а активный режим переключается отдельной кнопкой.</text>
+
+  <rect x="970" y="156" width="146" height="48" rx="24" fill="#1B2634" stroke="#334155"/>
+  <text x="1005" y="187" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">Режим</text>
+  <rect x="1130" y="156" width="182" height="48" rx="24" fill="#1B2634" stroke="#334155"/>
+  <text x="1161" y="187" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">Тёмная тема</text>
+
+  <rect x="124" y="274" width="1190" height="40" rx="20" fill="#1E3429" stroke="#2D7650"/>
+  <text x="148" y="300" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Связь с Telegram API</text>
+  <rect x="945" y="282" width="132" height="24" rx="12" fill="#243244"/>
+  <text x="964" y="299" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">Бот: Vless 1</text>
+  <rect x="1089" y="282" width="204" height="24" rx="12" fill="#243244"/>
+  <text x="1108" y="299" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">Списки: Vless 1 / 2</text>
+
+  <rect x="86" y="356" width="616" height="132" rx="24" fill="#171E28" stroke="#334155"/>
+  <text x="118" y="400" fill="#8B6F4A" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800" letter-spacing="2">ЗАПУСК</text>
+  <text x="118" y="438" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="800">Быстрый старт</text>
+  <text x="118" y="472" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="22">После сохранения ключей можно сразу запустить бота кнопкой на этой же странице.</text>
+  <rect x="478" y="392" width="188" height="52" rx="16" fill="#1F7A6A"/>
+  <text x="514" y="425" fill="#FFFDF8" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">Запустить</text>
+
+  <rect x="738" y="356" width="616" height="132" rx="24" fill="#171E28" stroke="#334155"/>
+  <text x="770" y="400" fill="#8B6F4A" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800" letter-spacing="2">КЛЮЧИ И МОСТЫ</text>
+  <text x="770" y="438" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="800">Подключения по протоколам</text>
+  <text x="770" y="472" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="22">Для каждого протокола есть отдельная карточка: Vless 1, Vless 2, Vmess, Trojan, Shadowsocks.</text>
+
+  <rect x="86" y="520" width="408" height="330" rx="24" fill="#171E28" stroke="#334155"/>
+  <text x="118" y="560" fill="#8B6F4A" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="800" letter-spacing="2">КЛЮЧ ПОДКЛЮЧЕНИЯ</text>
+  <rect x="310" y="536" width="144" height="28" rx="14" fill="#1E3429" stroke="#2D7650"/>
+  <text x="334" y="555" fill="#9BE4D3" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Сохранён</text>
+  <text x="118" y="610" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="800">Vless 1</text>
+  <text x="118" y="648" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="20">Основной маршрут для Telegram, GitHub, Copilot</text>
+  <rect x="118" y="676" width="344" height="112" rx="18" fill="#202A38"/>
+  <text x="138" y="714" fill="#EDF3FF" font-family="Consolas, monospace" font-size="18">vless://uuid@server:443?... </text>
+  <text x="138" y="744" fill="#9FB0C8" font-family="Consolas, monospace" font-size="18">security=reality&amp;type=tcp</text>
+  <rect x="118" y="802" width="214" height="34" rx="12" fill="#1F7A6A"/>
+  <text x="146" y="825" fill="#FFFDF8" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Сохранить Vless 1</text>
+
+  <rect x="516" y="520" width="408" height="330" rx="24" fill="#171E28" stroke="#334155"/>
+  <text x="548" y="560" fill="#8B6F4A" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="800" letter-spacing="2">КЛЮЧ ПОДКЛЮЧЕНИЯ</text>
+  <rect x="740" y="536" width="162" height="28" rx="14" fill="#3E2E16" stroke="#B78332"/>
+  <text x="764" y="555" fill="#F6C892" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Проверяется</text>
+  <text x="548" y="610" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="800">Vless 2</text>
+  <text x="548" y="648" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="20">Второй маршрут под отдельный набор сайтов или сервисов</text>
+  <rect x="548" y="676" width="344" height="112" rx="18" fill="#202A38"/>
+  <text x="568" y="714" fill="#EDF3FF" font-family="Consolas, monospace" font-size="18">vless://uuid@backup:443?... </text>
+  <text x="568" y="744" fill="#9FB0C8" font-family="Consolas, monospace" font-size="18">pbk=...&amp;sid=...&amp;sni=...</text>
+  <rect x="548" y="802" width="214" height="34" rx="12" fill="#1F7A6A"/>
+  <text x="576" y="825" fill="#FFFDF8" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Сохранить Vless 2</text>
+
+  <rect x="946" y="520" width="408" height="330" rx="24" fill="#171E28" stroke="#334155"/>
+  <text x="978" y="560" fill="#8B6F4A" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="800" letter-spacing="2">КЛЮЧ ПОДКЛЮЧЕНИЯ</text>
+  <rect x="1204" y="536" width="118" height="28" rx="14" fill="#243244" stroke="#334155"/>
+  <text x="1228" y="555" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Не задан</text>
+  <text x="978" y="610" fill="#EDF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="800">Vmess / Trojan</text>
+  <text x="978" y="648" fill="#9FB0C8" font-family="Segoe UI, Arial, sans-serif" font-size="20">Остальные протоколы выглядят так же и настраиваются с той же страницы</text>
+  <rect x="978" y="676" width="344" height="112" rx="18" fill="#202A38"/>
+  <text x="998" y="714" fill="#EDF3FF" font-family="Consolas, monospace" font-size="18">vmess://... или trojan://...</text>
+  <text x="998" y="744" fill="#9FB0C8" font-family="Consolas, monospace" font-size="18">Статус покажет, поднялся ли локальный SOCKS</text>
+  <rect x="978" y="802" width="190" height="34" rx="12" fill="#C96F32"/>
+  <text x="1006" y="825" fill="#FFFDF8" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Сохранить ключ</text>
+
+  <defs>
+    <linearGradient id="hero" x1="86" y1="126" x2="1342" y2="332" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171E28"/>
+      <stop offset="1" stop-color="#202A38"/>
+    </linearGradient>
+  </defs>
+</svg>
