@@ -52,6 +52,8 @@ localporttrojan = config.localporttrojan
 localportvmess = config.localportvmess
 localportvless = config.localportvless
 localportvless_transparent = str(int(localportvless) + 1)
+localportsh_bot = str(getattr(config, 'localportsh_bot', 10820))
+localporttrojan_bot = str(getattr(config, 'localporttrojan_bot', 10830))
 dnsporttor = config.dnsporttor
 dnsovertlsport = config.dnsovertlsport
 dnsoverhttpsport = config.dnsoverhttpsport
@@ -83,17 +85,17 @@ bot_polling = False
 proxy_mode = config.default_proxy_mode
 proxy_settings = {
     'none': None,
-    'shadowsocks': f'socks5h://127.0.0.1:{localportsh}',
+    'shadowsocks': f'socks5h://127.0.0.1:{localportsh_bot}',
     'vmess': f'socks5h://127.0.0.1:{localportvmess}',
     'vless': f'socks5h://127.0.0.1:{localportvless}',
-    'trojan': None,
+    'trojan': f'socks5h://127.0.0.1:{localporttrojan_bot}',
 }
 proxy_supports_http = {
     'none': True,
     'shadowsocks': True,
     'vmess': True,
     'vless': True,
-    'trojan': False,
+    'trojan': True,
 }
 web_status_cache = {
     'timestamp': 0,
@@ -465,7 +467,8 @@ def _load_unblock_lists():
         file_names = sorted(name for name in os.listdir(unblock_dir) if name.endswith('.txt'))
     except Exception:
         file_names = []
-    preferred_order = ['shadowsocks.txt', 'tor.txt', 'vmess.txt', 'vless.txt', 'trojan.txt', 'vpn.txt']
+    file_names = [name for name in file_names if name not in ['vpn.txt', 'tor.txt']]
+    preferred_order = ['vless.txt', 'vmess.txt', 'trojan.txt', 'shadowsocks.txt', 'vpn.txt', 'tor.txt']
     ordered = []
     for item in preferred_order:
         if item in file_names:
@@ -481,6 +484,13 @@ def _load_unblock_lists():
             'content': _read_text_file(os.path.join(unblock_dir, file_name)).strip(),
         })
     return result
+
+
+def _transparent_list_route_label():
+    config_text = _read_text_file(CORE_PROXY_CONFIG_PATH)
+    if 'in-vless-transparent' in config_text and 'proxy-vless' in config_text:
+        return 'Vless'
+    return 'Не определён'
 
 
 def _load_shadowsocks_key():
@@ -528,7 +538,6 @@ def _load_current_keys():
         'vmess': _read_v2ray_key(VMESS_KEY_PATH) or '',
         'vless': _read_v2ray_key(VLESS_KEY_PATH) or '',
         'trojan': _load_trojan_key(),
-        'tor': _load_tor_bridges(),
     }
 
 
@@ -559,6 +568,27 @@ def _check_http_through_proxy(proxy_url, url='https://www.youtube.com', connect_
         return False, f'Веб-проверка через ключ завершилась ошибкой: {exc}'
 
 
+def _check_telegram_api_through_proxy(proxy_url=None, connect_timeout=6, read_timeout=10):
+    url = f'https://api.telegram.org/bot{token}/getMe'
+    proxies = {'https': proxy_url, 'http': proxy_url} if proxy_url else None
+    try:
+        response = requests.get(url, timeout=(connect_timeout, read_timeout), proxies=proxies)
+        response.raise_for_status()
+        data = response.json()
+        if data.get('ok'):
+            return True, 'Доступ к api.telegram.org подтверждён.'
+        return False, f'Telegram API ответил: {data.get("description", "Не удалось определить причину")}.'
+    except requests.exceptions.ConnectTimeout:
+        return False, 'Прокси не установил соединение с api.telegram.org за отведённое время.'
+    except requests.exceptions.ReadTimeout:
+        return False, 'Сервер Telegram не ответил вовремя через этот ключ.'
+    except requests.exceptions.RequestException as exc:
+        error_text = str(exc)
+        if 'Missing dependencies for SOCKS support' in error_text:
+            return False, 'Отсутствует поддержка SOCKS (PySocks) для проверки Telegram API.'
+        return False, f'Проверка Telegram API завершилась ошибкой: {exc}'
+
+
 def _protocol_status_for_key(key_name, key_value):
     if not key_value.strip():
         return {
@@ -566,55 +596,32 @@ def _protocol_status_for_key(key_name, key_value):
             'label': 'Не сохранён',
             'details': 'Ключ ещё не сохранён на роутере.',
         }
-
-    if key_name == 'tor':
-        port_ready = _port_is_listening(localporttor) or _wait_for_port(None, localporttor, timeout=3)
-        if port_ready:
-            return {
-                'tone': 'warn',
-                'label': 'Мост загружен',
-                'details': f'Локальный порт Tor 127.0.0.1:{localporttor} доступен. Автоматическая веб-проверка для Tor не выполняется.',
-            }
-        return {
-            'tone': 'fail',
-            'label': 'Не поднялся',
-            'details': f'Локальный порт Tor 127.0.0.1:{localporttor} недоступен.',
-        }
-
-    if key_name == 'trojan':
-        endpoint_ok, endpoint_message = _check_local_proxy_endpoint(key_name, localporttrojan)
-        if endpoint_ok:
-            return {
-                'tone': 'warn',
-                'label': 'Порт поднят',
-                'details': endpoint_message + ' Автоматическая HTTP/SOCKS-проверка для Trojan в этой конфигурации не выполняется.',
-            }
-        return {
-            'tone': 'fail',
-            'label': 'Не поднялся',
-            'details': endpoint_message,
-        }
-
     ports = {
-        'shadowsocks': localportsh,
+        'shadowsocks': localportsh_bot,
         'vmess': localportvmess,
         'vless': localportvless,
+        'trojan': localporttrojan_bot,
     }
     port = ports.get(key_name)
     endpoint_ok, endpoint_message = _check_local_proxy_endpoint(key_name, port)
     if not endpoint_ok:
         return {
             'tone': 'fail',
-            'label': 'Локально не работает',
-            'details': endpoint_message,
+            'label': 'Не работает',
+            'details': f'{endpoint_message} Бот не может использовать этот ключ.',
         }
 
     proxy_url = proxy_settings.get(key_name)
-    http_ok, http_message = _check_http_through_proxy(proxy_url)
+    api_ok, api_message = _check_http_through_proxy(
+        proxy_url,
+        url='https://api.telegram.org',
+        connect_timeout=3,
+        read_timeout=4,
+    )
     return {
-        'tone': 'ok' if http_ok else 'fail',
-        'label': 'Работает' if http_ok else 'Нет веб-доступа',
-        'details': f'{endpoint_message} {http_message}'.strip(),
+        'tone': 'ok' if api_ok else 'fail',
+        'label': 'Работает' if api_ok else 'Не работает',
+        'details': f'{endpoint_message} {api_message}'.strip(),
     }
 
 
@@ -944,7 +951,10 @@ def _parse_trojan_key(key):
         'security': params.get('security', ['tls'])[0],
         'type': params.get('type', ['tcp'])[0],
         'host': params.get('host', [''])[0],
-        'path': params.get('path', ['/'])[0] or '/'
+        'path': params.get('path', ['/'])[0] or '/',
+        'serviceName': params.get('serviceName', [''])[0],
+        'fingerprint': params.get('fp', params.get('fingerprint', ['chrome']))[0],
+        'alpn': params.get('alpn', [''])[0],
     }
 
 
@@ -985,48 +995,54 @@ def _build_proxy_diagnostics(key_type, key_value):
 
 
 def _check_local_proxy_endpoint(key_type, port):
-    if key_type in ['shadowsocks', 'vmess', 'vless']:
-        if _wait_for_socks5_handshake(port, timeout=12):
+    if key_type in ['shadowsocks', 'vmess', 'vless', 'trojan']:
+        if _wait_for_socks5_handshake(port, timeout=3):
             return True, f'Локальный SOCKS-порт 127.0.0.1:{port} отвечает как SOCKS5.'
         if _port_is_listening(port):
             return False, f'Локальный порт 127.0.0.1:{port} открыт, но не отвечает как SOCKS5.'
         return False, f'Локальный порт 127.0.0.1:{port} недоступен.'
-    if key_type == 'trojan':
-        if _port_is_listening(port) or _wait_for_port(None, port, timeout=3):
-            return True, f'Локальный порт Trojan 127.0.0.1:{port} открыт.'
-        return False, f'Локальный порт Trojan 127.0.0.1:{port} недоступен.'
     return True, ''
+
+
+def _shadowsocks_runtime_mode():
+    init_script = _read_text_file('/opt/etc/init.d/S22shadowsocks')
+    if 'PROCS=ss-redir' in init_script or 'ss-redir' in init_script:
+        return 'redir'
+    if 'PROCS=ss-local' in init_script or 'ss-local' in init_script:
+        return 'socks'
+    return 'unknown'
 
 
 def _apply_installed_proxy(key_type, key_value):
     settings = {
         'shadowsocks': {
             'label': 'Shadowsocks',
-            'port': localportsh,
-            'restart_cmd': '/opt/etc/init.d/S22shadowsocks restart',
-            'startup_wait': 3,
+            'port': localportsh_bot,
+            'restart_cmds': ['/opt/etc/init.d/S22shadowsocks restart', CORE_PROXY_SERVICE_SCRIPT + ' restart'],
+            'startup_wait': 8,
         },
         'vmess': {
             'label': 'Vmess',
             'port': localportvmess,
-            'restart_cmd': CORE_PROXY_SERVICE_SCRIPT + ' restart',
+            'restart_cmds': [CORE_PROXY_SERVICE_SCRIPT + ' restart'],
             'startup_wait': 18,
         },
         'vless': {
             'label': 'Vless',
             'port': localportvless,
-            'restart_cmd': CORE_PROXY_SERVICE_SCRIPT + ' restart',
+            'restart_cmds': [CORE_PROXY_SERVICE_SCRIPT + ' restart'],
             'startup_wait': 18,
         },
         'trojan': {
             'label': 'Trojan',
-            'port': localporttrojan,
-            'restart_cmd': '/opt/etc/init.d/S22trojan restart',
-            'startup_wait': 3,
+            'port': localporttrojan_bot,
+            'restart_cmds': ['/opt/etc/init.d/S22trojan restart', CORE_PROXY_SERVICE_SCRIPT + ' restart'],
+            'startup_wait': 8,
         }
     }
     current = settings[key_type]
-    os.system(current['restart_cmd'])
+    for command in current['restart_cmds']:
+        os.system(command)
     time.sleep(current['startup_wait'])
 
     ok, error = update_proxy(key_type)
@@ -1034,7 +1050,8 @@ def _apply_installed_proxy(key_type, key_value):
     if not ok:
         return f'⚠️ {current["label"]} ключ сохранён, но режим бота не применён: {error}. {diagnostics}'.strip()
 
-    if not _ensure_service_port(current['port'], current['restart_cmd'], retries=2, sleep_after_restart=5):
+    restart_cmd = current['restart_cmds'][-1]
+    if not _ensure_service_port(current['port'], restart_cmd, retries=2, sleep_after_restart=5):
         update_proxy('none')
         return (f'⚠️ {current["label"]} ключ сохранён, но локальный порт 127.0.0.1:{current["port"]} '
                 f'не поднялся. Бот переключён в режим none. {diagnostics}').strip()
@@ -1045,24 +1062,19 @@ def _apply_installed_proxy(key_type, key_value):
         return (f'⚠️ {current["label"]} ключ сохранён, но {endpoint_message} '
                 f'Бот переключён в режим none. {diagnostics}').strip()
 
-    if proxy_supports_http.get(key_type, False):
-        api_status = check_telegram_api(retries=1, retry_delay=2, connect_timeout=10, read_timeout=15)
-        if api_status.startswith('✅'):
-            return (f'✅ {current["label"]} ключ сохранён. {endpoint_message} '
-                    f'Бот переведён в режим {current["label"]}. {api_status}').strip()
-        return (f'⚠️ {current["label"]} ключ сохранён. {endpoint_message} '
-                f'Бот переведён в режим {current["label"]}, но Telegram API не проходит через этот прокси. '
-                f'{api_status} {diagnostics}').strip()
-
+    api_status = check_telegram_api(retries=1, retry_delay=2, connect_timeout=10, read_timeout=15)
+    if api_status.startswith('✅'):
+        return (f'✅ {current["label"]} ключ сохранён. {endpoint_message} '
+                f'Бот переведён в режим {current["label"]}. {api_status}').strip()
     return (f'⚠️ {current["label"]} ключ сохранён. {endpoint_message} '
-            f'Бот переведён в режим {current["label"]}, но Telegram API в текущей конфигурации '
-            f'через этот режим не проверяется и не используется как HTTP/SOCKS proxy. {diagnostics}').strip()
+            f'Бот переведён в режим {current["label"]}, но Telegram API не проходит через этот ключ. '
+            f'{api_status} {diagnostics}').strip()
 
 
 def update_proxy(proxy_type):
     global proxy_mode
     proxy_url = proxy_settings.get(proxy_type)
-    if proxy_type != 'trojan' and proxy_url and proxy_url.startswith('socks') and not _has_socks_support():
+    if proxy_url and proxy_url.startswith('socks') and not _has_socks_support():
         return False, ('Для SOCKS-прокси требуется модуль PySocks. ' 
                        'Установите python3-pysocks или выберите другой режим.')
 
@@ -1086,51 +1098,19 @@ def update_proxy(proxy_type):
 
 
 def check_telegram_api(retries=2, retry_delay=7, connect_timeout=30, read_timeout=45):
-    url = f'https://api.telegram.org/bot{token}/getMe'
-    proxies = telebot.apihelper.proxy if getattr(telebot.apihelper, 'proxy', None) else None
     last_result = None
     for attempt in range(retries + 1):
-        try:
-            response = requests.get(url, timeout=(connect_timeout, read_timeout), proxies=proxies)
-            response.raise_for_status()
-            data = response.json()
-            if data.get('ok'):
-                return '✅ Доступ к api.telegram.org подтверждён.'
-            return f'⚠️ Telegram API ответил: {data.get("description", "Не удалось определить причину")} '
-        except requests.exceptions.RequestException as exc:
-            error_text = str(exc)
-            if 'Missing dependencies for SOCKS support' in error_text:
-                return ('❌ Не удалось подключиться к Telegram API: отсутствует поддержка SOCKS (PySocks). '
-                        'Установите python3-pysocks или используйте режим без SOCKS.')
-            if proxy_mode == 'trojan':
-                return ('❌ Не удалось подключиться к Telegram API через Trojan: текущая локальная конфигурация не поддерживает HTTPS/HTTP proxy '
-                        'в этом режиме. Используйте Shadowsocks, Vmess или Vless для прокси Telegram API.')
-            if isinstance(exc, requests.exceptions.ConnectTimeout):
-                if proxy_mode == 'none':
-                    return ('❌ Прямой доступ к api.telegram.org не проходит: соединение не установилось за отведённое время. '
-                            'Проверьте внешний доступ к Telegram или включите рабочий прокси-режим для бота.')
-                return (f'❌ Доступ к Telegram API через режим {proxy_mode} не проходит: прокси-соединение истекло по таймауту. '
-                        'Проверьте, что выбранный прокси действительно пропускает api.telegram.org.')
-            if isinstance(exc, requests.exceptions.ReadTimeout):
-                if proxy_mode == 'none':
-                    return ('❌ Прямой доступ к api.telegram.org не проходит: сервер Telegram не ответил вовремя. '
-                            'Проверьте внешний доступ к Telegram или включите рабочий прокси-режим для бота.')
-                return (f'❌ Доступ к Telegram API через режим {proxy_mode} не проходит: сервер не ответил вовремя через выбранный прокси. '
-                        'Проверьте работу прокси и маршрута до api.telegram.org.')
-            if 'Connection refused' in error_text or 'SOCKSHTTPSConnection' in error_text:
-                if proxy_mode in ['shadowsocks', 'vmess', 'vless']:
-                    port = {
-                        'shadowsocks': localportsh,
-                        'vmess': localportvmess,
-                        'vless': localportvless
-                    }.get(proxy_mode)
-                    if port and not _check_socks5_handshake(port):
-                        return ('❌ Не удалось подключиться к Telegram API: соединение через SOCKS-прокси отказано. '
-                                'Локальный порт отвечает, но не как SOCKS5. Проверьте конфигурацию прокси-сервиса и логи.')
-                last_result = ('❌ Не удалось подключиться к Telegram API: соединение через SOCKS-прокси отказано. '
-                               'Проверьте, что локальный прокси-сервис запущен и порт доступен.')
-            else:
-                last_result = f'❌ Не удалось подключиться к Telegram API: {exc}'
+        proxy_url = proxy_settings.get(proxy_mode)
+        ok, probe_message = _check_telegram_api_through_proxy(proxy_url, connect_timeout=connect_timeout, read_timeout=read_timeout)
+        if ok:
+            return '✅ Доступ к api.telegram.org подтверждён.'
+        if 'PySocks' in probe_message:
+            return ('❌ Не удалось подключиться к Telegram API: отсутствует поддержка SOCKS (PySocks). '
+                    'Установите python3-pysocks или используйте режим без SOCKS.')
+        if proxy_mode == 'none':
+            last_result = f'❌ Прямой доступ к api.telegram.org не проходит: {probe_message}'
+        else:
+            last_result = f'❌ Доступ к Telegram API через режим {proxy_mode} не проходит: {probe_message}'
             if attempt < retries:
                 time.sleep(retry_delay)
     return last_result
@@ -1143,11 +1123,12 @@ def _web_status_snapshot(force_refresh=False):
         return web_status_cache['data']
     state_label = 'polling активен' if bot_polling else ('ожидает запуска' if not bot_ready else 'процесс запущен, polling недоступен')
     socks_details = ''
-    if proxy_mode in ['shadowsocks', 'vmess', 'vless']:
+    if proxy_mode in ['shadowsocks', 'vmess', 'vless', 'trojan']:
         port = {
-            'shadowsocks': localportsh,
+            'shadowsocks': localportsh_bot,
             'vmess': localportvmess,
-            'vless': localportvless
+            'vless': localportvless,
+            'trojan': localporttrojan_bot,
         }.get(proxy_mode)
         if port:
             socks_ok = _check_socks5_handshake(port)
@@ -1554,7 +1535,7 @@ def bot_message(message):
             if message.text == '🌐 Через браузер':
                 bot.send_message(message.chat.id,
                                  f'Откройте в браузере: http://{routerip}:{browser_port}/\n'
-                                 'Введите мосты Tor или другие ключи на странице.', reply_markup=main)
+                                 'Введите ключ Shadowsocks, Vmess, Vless или Trojan на странице.', reply_markup=main)
                 return
 
             if message.text == 'Tor через telegram':
@@ -1647,17 +1628,15 @@ def bot_message(message):
                 level = 8
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 item1 = types.KeyboardButton("Shadowsocks")
-                item2 = types.KeyboardButton("Tor")
-                item3 = types.KeyboardButton("Vmess")
-                item4 = types.KeyboardButton("Vless")
-                item5 = types.KeyboardButton("Trojan")
-                item6 = types.KeyboardButton("Где брать ключи❔")
-                item7 = types.KeyboardButton("🌐 Через браузер")
+                item2 = types.KeyboardButton("Vmess")
+                item3 = types.KeyboardButton("Vless")
+                item4 = types.KeyboardButton("Trojan")
+                item5 = types.KeyboardButton("Где брать ключи❔")
+                item6 = types.KeyboardButton("🌐 Через браузер")
                 markup.add(item1, item2)
                 markup.add(item3, item4)
                 markup.add(item5)
                 markup.add(item6)
-                markup.add(item7)
                 back = types.KeyboardButton("🔙 Назад")
                 markup.add(back)
                 bot.send_message(message.chat.id, "🔑 Ключи и мосты", reply_markup=markup)
@@ -1712,13 +1691,6 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         if status.get('fallback_reason') and status['proxy_mode'] == 'none':
             fallback_block = f'<p class="status-note">Последняя неудачная попытка прокси: {html.escape(status["fallback_reason"])}</p>'
 
-        status_block = f'''<div class="notice notice-status hero-status">
-    <strong>Связь с Telegram API</strong>
-    <p>{html.escape(status['api_status'])}</p>
-    {socks_block}
-    {fallback_block}
-</div>'''
-
         current_mode_label = {
             'none': 'Без VPN',
             'shadowsocks': 'Shadowsocks',
@@ -1726,6 +1698,20 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             'vless': 'Vless',
             'trojan': 'Trojan',
         }.get(status['proxy_mode'], status['proxy_mode'])
+        list_route_label = _transparent_list_route_label()
+
+        status_block = f'''<div class="notice notice-status hero-status hero-status-compact">
+    <div class="hero-status-header">
+        <strong>Связь с Telegram API</strong>
+        <div class="traffic-inline">
+            <span class="traffic-chip"><span class="traffic-chip-label">Бот</span><span class="traffic-chip-value">{html.escape(current_mode_label)}</span></span>
+            <span class="traffic-chip"><span class="traffic-chip-label">Списки</span><span class="traffic-chip-value">{html.escape(list_route_label)}</span></span>
+        </div>
+    </div>
+    <p>{html.escape(status['api_status'])}</p>
+    {socks_block}
+    {fallback_block}
+</div>'''
 
         mode_picker_block = f'''<div id="mode-picker" class="hero-popover mode-picker hidden">
     <form method="post" action="/set_proxy" class="mode-picker-form">
@@ -1742,11 +1728,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
 </div>'''
 
         protocol_sections = [
-            ('shadowsocks', 'Shadowsocks', 5, 'shadowsocks://...'),
-            ('vmess', 'Vmess', 6, 'vmess://...'),
             ('vless', 'Vless', 6, 'vless://...'),
+            ('vmess', 'Vmess', 6, 'vmess://...'),
             ('trojan', 'Trojan', 5, 'trojan://...'),
-            ('tor', 'Tor вручную', 8, 'Bridge obfs4 ...'),
+            ('shadowsocks', 'Shadowsocks', 5, 'shadowsocks://...'),
         ]
         protocol_cards = []
         for key_name, title, rows, placeholder in protocol_sections:
@@ -1869,10 +1854,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
         }}
                 .shell{{max-width:1180px;margin:0 auto;}}
-        .hero{{margin-bottom:20px;padding:28px;border:1px solid var(--border);border-radius:28px;background:linear-gradient(140deg, rgba(23,30,40,.98), rgba(32,42,56,.9));box-shadow:var(--shadow);}}
+        .hero{{margin-bottom:16px;padding:22px 24px;border:1px solid var(--border);border-radius:24px;background:linear-gradient(140deg, rgba(23,30,40,.98), rgba(32,42,56,.9));box-shadow:var(--shadow);}}
         [data-theme="light"] .hero{{background:linear-gradient(140deg, rgba(255,253,248,.98), rgba(239,226,203,.88));}}
                 .hero-copy{{max-width:700px;}}
-                .hero-row{{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}}
+                .hero-row{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}}
                 .hero-actions{{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;position:relative;justify-content:flex-end;}}
         .hero-meta{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0;}}
         .hero-chip{{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:rgba(79,140,255,.08);border:1px solid rgba(96,165,250,.18);font-size:13px;font-weight:700;color:var(--text);}}
@@ -1885,9 +1870,9 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 .hidden{{display:none;}}
                 .mode-picker-form{{display:grid;gap:10px;}}
                 .mode-picker-label{{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}}
-        h1{{margin:0 0 12px;font-size:clamp(30px,5vw,48px);line-height:1.02;letter-spacing:-0.04em;color:var(--text);}}
+        h1{{margin:0 0 8px;font-size:clamp(30px,5vw,48px);line-height:1.02;letter-spacing:-0.04em;color:var(--text);}}
         h2{{margin:0 0 14px;font-size:20px;color:var(--text);}}
-                p{{margin:0 0 10px;line-height:1.55;color:var(--muted);}}
+            p{{margin:0 0 8px;line-height:1.5;color:var(--muted);}}
         .hero strong{{color:var(--text);}}
                 .layout{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}}
         .panel{{padding:18px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg, rgba(23,30,40,.96), rgba(32,42,56,.94));box-shadow:var(--shadow);}}
@@ -1905,12 +1890,18 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 .status-card{{padding:14px;border-radius:18px;background:rgba(79,140,255,.08);border:1px solid rgba(96,165,250,.18);}}
                 .status-label{{display:block;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#90a5c4;}}
                 .status-value{{font-size:16px;color:var(--text);}}
-                .notice{{padding:16px;border-radius:18px;margin-bottom:18px;}}
+                .notice{{padding:12px 14px;border-radius:16px;margin-bottom:14px;}}
                 .notice strong{{display:block;margin-bottom:8px;color:var(--text);}}
         .notice-result{{background:var(--warn-bg);border:1px solid var(--warn-border);}}
         .notice-status{{background:var(--success-bg);border:1px solid var(--success-border);}}
-        .hero-status{{margin-top:16px;margin-bottom:0;}}
-                .status-note{{margin-top:10px;color:var(--text);}}
+            .hero-status{{margin-top:12px;margin-bottom:0;}}
+            .hero-status-compact p:last-child{{margin-bottom:0;}}
+            .hero-status-header{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px;}}
+            .traffic-inline{{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;}}
+            .traffic-chip{{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);}}
+            .traffic-chip-label{{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}}
+            .traffic-chip-value{{font-size:13px;font-weight:700;color:var(--text);}}
+                .status-note{{margin-top:6px;color:var(--text);font-size:14px;line-height:1.4;}}
                 .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:var(--text);}}
                 .eyebrow{{display:inline-block;margin-bottom:10px;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8b6f4a;}}
                 .section-title{{margin:0 0 6px;font-size:24px;color:var(--text);}}
@@ -1928,9 +1919,11 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         .wide{{grid-column:1 / -1;}}
         @media (max-width: 760px){{
             body{{padding:12px;}}
-                        .hero{{padding:18px;border-radius:20px;}}
+                        .hero{{padding:16px;border-radius:20px;}}
             .hero-row{{flex-direction:column;align-items:stretch;}}
             .hero-actions{{width:100%;justify-content:stretch;}}
+            .hero-status-header{{flex-direction:column;align-items:flex-start;}}
+            .traffic-inline{{justify-content:flex-start;}}
             .theme-toggle,.mode-toggle{{justify-content:center;}}
             .hero-popover{{position:static;min-width:0;width:100%;}}
             .layout{{grid-template-columns:1fr;gap:12px;}}
@@ -2190,7 +2183,7 @@ def _parse_vmess_key(key):
         raise ValueError('Неверный протокол, ожидается vmess://')
     encodedkey = key[8:]
     try:
-        decoded = base64.b64decode(encodedkey).decode('utf-8')
+        decoded = base64.b64decode(encodedkey + '=' * (-len(encodedkey) % 4)).decode('utf-8')
     except Exception as exc:
         raise ValueError(f'Не удалось декодировать vmess-ключ: {exc}')
     try:
@@ -2257,7 +2250,7 @@ def _parse_vless_key(key):
     }
 
 
-def _build_v2ray_config(vmess_key=None, vless_key=None):
+def _build_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, trojan_key=None):
     config_data = {
         'log': {
             'access': CORE_PROXY_ACCESS_LOG,
@@ -2335,6 +2328,40 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
             'type': 'field',
             'inboundTag': ['in-vmess'],
             'outboundTag': 'proxy-vmess',
+            'enabled': True
+        })
+
+    if shadowsocks_key:
+        server, port, method, password = _decode_shadowsocks_uri(shadowsocks_key)
+        config_data['inbounds'].append({
+            'port': int(localportsh_bot),
+            'listen': '127.0.0.1',
+            'protocol': 'socks',
+            'settings': {
+                'auth': 'noauth',
+                'udp': True,
+                'ip': '127.0.0.1'
+            },
+            'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']},
+            'tag': 'in-shadowsocks'
+        })
+        config_data['outbounds'].append({
+            'tag': 'proxy-shadowsocks',
+            'protocol': 'shadowsocks',
+            'settings': {
+                'servers': [{
+                    'address': server,
+                    'port': int(port),
+                    'method': method,
+                    'password': password,
+                    'level': 0
+                }]
+            }
+        })
+        config_data['routing']['rules'].append({
+            'type': 'field',
+            'inboundTag': ['in-shadowsocks'],
+            'outboundTag': 'proxy-shadowsocks',
             'enabled': True
         })
 
@@ -2422,6 +2449,63 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
             'enabled': True
         })
 
+    if trojan_key:
+        trojan_data = _parse_trojan_key(trojan_key)
+        config_data['inbounds'].append({
+            'port': int(localporttrojan_bot),
+            'listen': '127.0.0.1',
+            'protocol': 'socks',
+            'settings': {
+                'auth': 'noauth',
+                'udp': True,
+                'ip': '127.0.0.1'
+            },
+            'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']},
+            'tag': 'in-trojan'
+        })
+        trojan_stream = {
+            'network': trojan_data.get('type', 'tcp') or 'tcp',
+            'security': 'none'
+        }
+        if trojan_data.get('security', 'tls') == 'tls':
+            trojan_stream['security'] = 'tls'
+            trojan_stream['tlsSettings'] = {
+                'allowInsecure': True,
+                'serverName': trojan_data.get('sni') or trojan_data.get('host') or trojan_data.get('address', ''),
+                'fingerprint': trojan_data.get('fingerprint', 'chrome')
+            }
+            if trojan_data.get('alpn'):
+                trojan_stream['tlsSettings']['alpn'] = [item.strip() for item in trojan_data['alpn'].split(',') if item.strip()]
+        if trojan_stream['network'] == 'ws':
+            trojan_stream['wsSettings'] = {
+                'path': trojan_data.get('path', '/'),
+                'headers': {'Host': trojan_data.get('host') or trojan_data.get('sni') or trojan_data.get('address', '')}
+            }
+        elif trojan_stream['network'] == 'grpc':
+            trojan_stream['grpcSettings'] = {
+                'serviceName': trojan_data.get('serviceName', ''),
+                'multiMode': False
+            }
+        config_data['outbounds'].append({
+            'tag': 'proxy-trojan',
+            'protocol': 'trojan',
+            'settings': {
+                'servers': [{
+                    'address': trojan_data['address'],
+                    'port': int(trojan_data['port']),
+                    'password': trojan_data['password'],
+                    'level': 0
+                }]
+            },
+            'streamSettings': trojan_stream
+        })
+        config_data['routing']['rules'].append({
+            'type': 'field',
+            'inboundTag': ['in-trojan'],
+            'outboundTag': 'proxy-trojan',
+            'enabled': True
+        })
+
     if config_data['outbounds']:
         config_data['outbounds'].append({'protocol': 'freedom', 'tag': 'direct'})
         config_data['routing']['rules'].append({
@@ -2434,40 +2518,50 @@ def _build_v2ray_config(vmess_key=None, vless_key=None):
     return config_data
 
 
-def _write_v2ray_config(vmess_key=None, vless_key=None):
-    config_json = _build_v2ray_config(vmess_key, vless_key)
+def _write_v2ray_config(vmess_key=None, vless_key=None, shadowsocks_key=None, trojan_key=None):
+    config_json = _build_v2ray_config(vmess_key, vless_key, shadowsocks_key, trojan_key)
     os.makedirs(CORE_PROXY_CONFIG_DIR, exist_ok=True)
     with open(CORE_PROXY_CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(config_json, f, ensure_ascii=False, indent=2)
 
 
+def _write_all_proxy_core_config():
+    _write_v2ray_config(
+        _read_v2ray_key(VMESS_KEY_PATH),
+        _read_v2ray_key(VLESS_KEY_PATH),
+        _load_shadowsocks_key(),
+        _load_trojan_key(),
+    )
+
+
 def vless(key):
     _parse_vless_key(key)
     _save_v2ray_key(VLESS_KEY_PATH, key)
-    current_vmess = _read_v2ray_key(VMESS_KEY_PATH)
-    _write_v2ray_config(current_vmess, key)
+    _write_all_proxy_core_config()
 
 
 def vmess(key):
     _parse_vmess_key(key)
     _save_v2ray_key(VMESS_KEY_PATH, key)
-    current_vless = _read_v2ray_key(VLESS_KEY_PATH)
-    _write_v2ray_config(key, current_vless)
+    _write_all_proxy_core_config()
 
 def trojan(key):
-    # global appapiid, appapihash, password, localporttrojan
-    key = key.split('//')[1]
-    pw = key.split('@')[0]
-    key = key.replace(pw + "@", "", 1)
-    host = key.split(':')[0]
-    key = key.replace(host + ":", "", 1)
-    port = key.split('?')[0].split('#')[0]
-    f = open('/opt/etc/trojan/config.json', 'w')
-    sh = '{"run_type":"nat","local_addr":"::","local_port":' \
-         + str(localporttrojan) + ',"remote_addr":"' + host + '","remote_port":' + port + \
-         ',"password":["' + pw + '"],"ssl":{"verify":false,"verify_hostname":false}}'
-    f.write(sh)
-    f.close()
+    trojan_data = _parse_trojan_key(key)
+    config = {
+        'run_type': 'nat',
+        'local_addr': '::',
+        'local_port': int(localporttrojan),
+        'remote_addr': trojan_data['address'],
+        'remote_port': int(trojan_data['port']),
+        'password': [trojan_data['password']],
+        'ssl': {
+            'verify': False,
+            'verify_hostname': False,
+        }
+    }
+    with open('/opt/etc/trojan/config.json', 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, separators=(',', ':'))
+    _write_all_proxy_core_config()
 
 def _decode_shadowsocks_uri(key):
     if not key.startswith('ss://'):
@@ -2512,13 +2606,14 @@ def shadowsocks(key=None):
         'password': password,
         'timeout': 86400,
         'method': method,
-        'local_address': '127.0.0.1',
+        'local_address': '::',
         'local_port': int(localportsh),
         'fast_open': False,
         'ipv6_first': True
     }
     with open('/opt/etc/shadowsocks.json', 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
+    _write_all_proxy_core_config()
 
 def tormanually(bridges):
     # global localporttor, dnsporttor
@@ -2575,6 +2670,12 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 def main():
     global proxy_mode, bot_polling
     _daemonize_process()
+    try:
+        _write_all_proxy_core_config()
+        os.system(CORE_PROXY_SERVICE_SCRIPT + ' restart')
+    except Exception as exc:
+        with open('/opt/etc/error.log', 'a', encoding='utf-8', errors='ignore') as fl:
+            fl.write(f'Не удалось пересобрать core proxy config при старте: {exc}\n')
     if _load_bot_autostart():
         globals()['bot_ready'] = True
     proxy_mode = _load_proxy_mode()
@@ -2582,11 +2683,12 @@ def main():
     if not ok:
         proxy_mode = config.default_proxy_mode
         update_proxy(proxy_mode)
-    elif proxy_mode in ['shadowsocks', 'vmess', 'vless']:
+    elif proxy_mode in ['shadowsocks', 'vmess', 'vless', 'trojan']:
         startup_settings = {
-            'shadowsocks': localportsh,
+            'shadowsocks': localportsh_bot,
             'vmess': localportvmess,
             'vless': localportvless,
+            'trojan': localporttrojan_bot,
         }
         startup_port = startup_settings.get(proxy_mode)
         endpoint_ok, endpoint_message = _check_local_proxy_endpoint(proxy_mode, startup_port)
