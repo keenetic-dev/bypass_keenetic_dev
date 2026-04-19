@@ -2841,6 +2841,7 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 def main():
     global proxy_mode, bot_polling
     _daemonize_process()
+    start_http_server()
     try:
         _write_all_proxy_core_config()
         os.system(CORE_PROXY_SERVICE_SCRIPT + ' restart')
@@ -2871,7 +2872,6 @@ def main():
             api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=8, read_timeout=10)
             if not api_status.startswith('✅'):
                 _write_runtime_log(f'Прокси-режим {proxy_mode} не подтверждён при старте: {api_status}')
-    start_http_server()
     wait_for_bot_start()
     while True:
         try:
