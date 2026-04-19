@@ -1810,7 +1810,7 @@ def bot_message(message):
 
             if message.text == '🔰 Установка и удаление':
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                item1 = types.KeyboardButton("♻️ Установка & переустановка")
+                item1 = types.KeyboardButton("♻️ Установка и переустановка")
                 item2 = types.KeyboardButton("⚠️ Удаление")
                 back = types.KeyboardButton("🔙 Назад")
                 markup.row(item1, item2)
@@ -1818,48 +1818,24 @@ def bot_message(message):
                 bot.send_message(message.chat.id, '🔰 Установка и удаление', reply_markup=markup)
                 return
 
-            if message.text == '♻️ Установка & переустановка':
-                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                item1 = types.KeyboardButton("Оригинальная версия")
-                item2 = types.KeyboardButton(fork_button_label)
-                back = types.KeyboardButton("🔙 Назад")
-                markup.row(item1, item2)
-                markup.row(back)
-                bot.send_message(message.chat.id, 'Выберите репозиторий', reply_markup=markup)
-                return
-
-            if message.text == "Оригинальная версия" or message.text == fork_button_label:
-                if message.text == "Оригинальная версия":
-                    repo = "tas-unn"
-                    repo_name = 'bypass_keenetic'
-                else:
-                    repo = fork_repo_owner
-                    repo_name = fork_repo_name
-
-                return_code, output = _run_script_action('-install', repo, repo_name)
+            if message.text == '♻️ Установка и переустановка' or message.text == '♻️ Установка & переустановка':
+                bot.send_message(message.chat.id,
+                                 f'Запускаю переустановку из форка {fork_repo_owner}/{fork_repo_name} без сброса ключей и списков, подождите.',
+                                 reply_markup=main)
+                return_code, output = _run_script_action('-update', fork_repo_owner, fork_repo_name)
                 _send_telegram_chunks(message.chat.id, output, reply_markup=main)
 
                 if return_code != 0:
                     bot.send_message(message.chat.id,
-                                     '⚠️ Установка завершилась с ошибкой. Полный лог отправлен выше.',
+                                     '⚠️ Переустановка из форка завершилась с ошибкой. Полный лог отправлен выше.',
                                      reply_markup=main)
                     return
 
                 bot.send_message(message.chat.id,
-                                 "Установка завершена. Теперь нужно немного настроить роутер и перейти к "
-                                 "спискам для разблокировок. "
-                                 "Ключи для Vmess, Shadowsocks и Trojan необходимо установить вручную, "
-                                 "ключи для Tor можно установить автоматически: " 
-                                 "Ключи и Мосты -> Tor -> Tor через telegram.",
-                                 reply_markup=main)
-
-                bot.send_message(message.chat.id,
-                                 "Что бы завершить настройку роутера, Зайдите в меню сервис -> DNS Override -> ВКЛ. "
-                                 "Учтите, после выполнения команды, роутер перезагрузится, это займет около 2 минут.",
+                                 '✅ Переустановка из форка без сброса завершена.',
                                  reply_markup=main)
 
                 subprocess.call(["/opt/bin/unblock_update.sh"])
-                # os.system('/opt/bin/unblock_update.sh')
                 return
 
             if message.text == '⚠️ Удаление':
