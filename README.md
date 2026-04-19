@@ -26,6 +26,12 @@ sh -c 'export PATH=/opt/bin:/opt/sbin:$PATH; OPKG="$(command -v opkg || echo /op
 
 После этого откроется страница первичной настройки на `http://192.168.1.1:8080/`, где пользователь введёт BotFather token, username, app api id и app api hash. Затем installer сохранит `bot_config.py` и запустит основной бот.
 
+Скриншот страницы первичной настройки:
+
+<a href="docs/screenshots/installer-setup.png">
+	<img src="docs/screenshots/installer-setup.png" alt="Первичная настройка бота" width="420">
+</a>
+
 Перед заменой live-файлов bootstrap создаёт локальный backup на роутере и генерирует rollback-скрипт в `/opt/root/bypass-last-rollback.sh`.
 
 Если `bot_config.py` отсутствует, сервис бота автоматически запускает installer вместо основного Telegram-бота. После сохранения настроек installer сам переключает роутер обратно на основной сервис.
