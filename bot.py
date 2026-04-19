@@ -17,7 +17,7 @@ import time
 import threading
 import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import telebot
 from telebot import types
@@ -81,6 +81,7 @@ VLESS2_KEY_PATH = os.path.join(CORE_PROXY_CONFIG_DIR, 'vless2.key')
 bot_ready = False
 bot_polling = False
 web_httpd = None
+shutdown_requested = threading.Event()
 proxy_mode = config.default_proxy_mode
 proxy_settings = {
     'none': None,
@@ -136,6 +137,47 @@ RUNTIME_ERROR_LOG_PATHS = [
 ]
 
 
+def _normalize_username(value):
+    if value is None:
+        return ''
+    normalized = str(value).strip()
+    if normalized.startswith('@'):
+        normalized = normalized[1:]
+    return normalized.casefold()
+
+
+def _build_authorized_identities(raw_values):
+    if isinstance(raw_values, (str, int)):
+        values = [raw_values]
+    else:
+        values = list(raw_values or [])
+
+    normalized_usernames = set()
+    numeric_ids = set()
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        if text.lstrip('-').isdigit():
+            try:
+                numeric_ids.add(int(text))
+                continue
+            except ValueError:
+                pass
+        normalized = _normalize_username(text)
+        if normalized:
+            normalized_usernames.add(normalized)
+    return normalized_usernames, numeric_ids
+
+
+AUTHORIZED_USERNAMES, AUTHORIZED_USER_IDS = _build_authorized_identities(usernames)
+EXTRA_AUTHORIZED_USER_IDS = getattr(config, 'authorized_user_ids', [])
+_, EXTRA_NUMERIC_USER_IDS = _build_authorized_identities(EXTRA_AUTHORIZED_USER_IDS)
+AUTHORIZED_USER_IDS.update(EXTRA_NUMERIC_USER_IDS)
+
+
 def _raw_github_url(path):
     return f'https://raw.githubusercontent.com/{fork_repo_owner}/{fork_repo_name}/main/{path}?ts={int(time.time())}'
 
@@ -151,6 +193,52 @@ def _write_runtime_log(message, mode='a'):
                 file.write(text)
         except Exception:
             continue
+
+
+def _message_debug_text(message):
+    text = getattr(message, 'text', None)
+    if text is None:
+        return '<non-text>'
+    text = str(text).replace('\r', ' ').replace('\n', ' ')
+    if len(text) > 120:
+        return text[:117] + '...'
+    return text
+
+
+def _authorize_message(message, handler_name):
+    user = getattr(message, 'from_user', None)
+    chat = getattr(message, 'chat', None)
+    user_id = getattr(user, 'id', None)
+    username = getattr(user, 'username', None)
+    normalized_username = _normalize_username(username)
+    chat_id = getattr(chat, 'id', None)
+    chat_type = getattr(chat, 'type', None)
+
+    authorized = False
+    reason = 'unauthorized'
+    if user_id in AUTHORIZED_USER_IDS:
+        authorized = True
+        reason = 'user_id'
+    elif normalized_username and normalized_username in AUTHORIZED_USERNAMES:
+        authorized = True
+        reason = 'username'
+    elif not normalized_username:
+        reason = 'missing_username'
+
+    _write_runtime_log(
+        f'handler={handler_name} chat_id={chat_id} chat_type={chat_type} '
+        f'user_id={user_id} username={username!r} authorized={authorized} '
+        f'reason={reason} text={_message_debug_text(message)}'
+    )
+    return authorized, reason
+
+
+def _send_unauthorized_message(message, reason):
+    if reason == 'missing_username':
+        text = 'У вашего Telegram-аккаунта не задан username. Задайте username в настройках Telegram и повторите команду.'
+    else:
+        text = 'Вы не являетесь автором канала'
+    bot.send_message(message.chat.id, text)
 
 
 def _read_json_file(path, default=None):
@@ -190,6 +278,72 @@ def _daemonize_process():
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
     except Exception:
         pass
+
+
+def _request_shutdown(reason=''):
+    global bot_polling
+    if shutdown_requested.is_set():
+        return
+    shutdown_requested.set()
+    bot_polling = False
+    if reason:
+        _write_runtime_log(f'Запрошена остановка бота: {reason}')
+    try:
+        bot.stop_polling()
+    except Exception:
+        pass
+    try:
+        bot.stop_bot()
+    except Exception:
+        pass
+    if web_httpd is not None:
+        try:
+            threading.Thread(target=web_httpd.shutdown, daemon=True).start()
+        except Exception:
+            pass
+
+
+def _finalize_shutdown():
+    if web_httpd is not None:
+        try:
+            web_httpd.server_close()
+        except Exception:
+            pass
+    try:
+        bot.delete_webhook(timeout=10)
+    except Exception as exc:
+        _write_runtime_log(f'Не удалось удалить webhook при остановке: {exc}')
+    try:
+        bot.close()
+    except Exception as exc:
+        close_error = str(exc).lower()
+        if '429' in close_error or 'too many requests' in close_error:
+            _write_runtime_log('Bot API close недоступен в первые 10 минут после старта, остановка продолжена без него')
+        else:
+            _write_runtime_log(f'Не удалось закрыть bot instance при остановке: {exc}')
+
+
+def _register_signal_handlers():
+    if os.name != 'posix':
+        return
+
+    def _handle_stop_signal(signum, frame):
+        try:
+            signal_name = signal.Signals(signum).name
+        except Exception:
+            signal_name = str(signum)
+        _request_shutdown(signal_name)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _handle_stop_signal)
+        except Exception:
+            pass
+
+
+def _is_polling_conflict(err):
+    text = str(err).lower()
+    return 'terminated by other getupdates request' in text or '409 conflict' in text
 
 
 def _save_proxy_mode(proxy_type):
@@ -744,6 +898,9 @@ def _load_shadowsocks_key():
     try:
         with open('/opt/etc/shadowsocks.json', 'r', encoding='utf-8') as file:
             data = json.load(file)
+        raw_uri = str(data.get('raw_uri', '') or '').strip()
+        if raw_uri.startswith('ss://'):
+            return raw_uri
         server = (data.get('server') or [''])[0]
         port = data.get('server_port', '')
         method = data.get('method', '')
@@ -760,6 +917,9 @@ def _load_trojan_key():
     try:
         with open('/opt/etc/trojan/config.json', 'r', encoding='utf-8') as file:
             data = json.load(file)
+        raw_uri = str(data.get('raw_uri', '') or '').strip()
+        if raw_uri.startswith('trojan://'):
+            return raw_uri
         password = (data.get('password') or [''])[0]
         address = data.get('remote_addr', '')
         port = data.get('remote_port', '')
@@ -771,7 +931,47 @@ def _load_trojan_key():
             return ''
         if not password or not address or not port:
             return ''
-        return f'trojan://{password}@{address}:{port}'
+        query_params = []
+        trojan_type = str(data.get('type', '') or '').strip()
+        if trojan_type and trojan_type != 'tcp':
+            query_params.append(('type', trojan_type))
+
+        security = str(data.get('security', '') or '').strip()
+        if security and security != 'tls':
+            query_params.append(('security', security))
+
+        sni = str(data.get('sni', '') or '').strip()
+        if sni:
+            query_params.append(('sni', sni))
+
+        host = str(data.get('host', '') or '').strip()
+        if host:
+            query_params.append(('host', host))
+
+        path = str(data.get('path', '') or '').strip()
+        if path and path != '/':
+            query_params.append(('path', path))
+
+        service_name = str(data.get('serviceName', '') or '').strip()
+        if service_name:
+            query_params.append(('serviceName', service_name))
+
+        fingerprint = str(data.get('fingerprint', '') or '').strip()
+        if fingerprint and fingerprint != 'chrome':
+            query_params.append(('fp', fingerprint))
+
+        alpn = str(data.get('alpn', '') or '').strip()
+        if alpn:
+            query_params.append(('alpn', alpn))
+
+        query_suffix = ''
+        if query_params:
+            query_suffix = '?' + urlencode(query_params)
+
+        fragment = str(data.get('fragment', '') or '').strip()
+        fragment_suffix = f'#{quote(fragment)}' if fragment else ''
+
+        return f'trojan://{password}@{address}:{port}{query_suffix}{fragment_suffix}'
     except Exception:
         return ''
 
@@ -1327,6 +1527,7 @@ def _parse_trojan_key(key):
         'serviceName': params.get('serviceName', [''])[0],
         'fingerprint': params.get('fp', params.get('fingerprint', ['chrome']))[0],
         'alpn': params.get('alpn', [''])[0],
+        'fragment': unquote(parsed.fragment or ''),
     }
 
 
@@ -1568,8 +1769,9 @@ def _refresh_status_caches_async(current_keys):
 #  ✅ ❌ ♻️ 📃 📆 🔑 📄 ❗ ️⚠️ ⚙️ 📝 📆 🗑 📄️⚠️ 🔰 ❔ ‼️ 📑
 @bot.message_handler(commands=['start'])
 def start(message):
-    if message.from_user.username not in usernames:
-        bot.send_message(message.chat.id, 'Вы не являетесь автором канала')
+    authorized, reason = _authorize_message(message, 'start')
+    if not authorized:
+        _send_unauthorized_message(message, reason)
         return
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     item1 = types.KeyboardButton("🔰 Установка и удаление")
@@ -1582,6 +1784,11 @@ def start(message):
 @bot.message_handler(content_types=['text'])
 def bot_message(message):
     try:
+        authorized, reason = _authorize_message(message, 'text')
+        if not authorized:
+            _send_unauthorized_message(message, reason)
+            return
+
         main = types.ReplyKeyboardMarkup(resize_keyboard=True)
         m1 = types.KeyboardButton("🔰 Установка и удаление")
         m2 = types.KeyboardButton("🔑 Ключи и мосты")
@@ -1601,9 +1808,6 @@ def bot_message(message):
         service.add(m3, m4)
         service.add(back)
 
-        if message.from_user.username not in usernames:
-            bot.send_message(message.chat.id, 'Вы не являетесь автором канала')
-            return
         if message.chat.type == 'private':
             global level, bypass
 
@@ -2619,7 +2823,7 @@ def start_http_server():
 
 def wait_for_bot_start():
     global bot_ready
-    while not bot_ready:
+    while not bot_ready and not shutdown_requested.is_set():
         time.sleep(1)
 
 
@@ -3037,7 +3241,8 @@ def vmess(key):
     _write_all_proxy_core_config()
 
 def trojan(key):
-    trojan_data = _parse_trojan_key(key)
+    raw_key = key.strip()
+    trojan_data = _parse_trojan_key(raw_key)
     config = {
         'run_type': 'nat',
         'local_addr': '::',
@@ -3045,6 +3250,16 @@ def trojan(key):
         'remote_addr': trojan_data['address'],
         'remote_port': int(trojan_data['port']),
         'password': [trojan_data['password']],
+        'raw_uri': raw_key,
+        'type': trojan_data['type'],
+        'security': trojan_data['security'],
+        'sni': trojan_data['sni'],
+        'host': trojan_data['host'],
+        'path': trojan_data['path'],
+        'serviceName': trojan_data['serviceName'],
+        'fingerprint': trojan_data['fingerprint'],
+        'alpn': trojan_data['alpn'],
+        'fragment': trojan_data['fragment'],
         'ssl': {
             'verify': False,
             'verify_hostname': False,
@@ -3089,7 +3304,8 @@ def _decode_shadowsocks_uri(key):
 
 
 def shadowsocks(key=None):
-    server, port, method, password = _decode_shadowsocks_uri(key.strip())
+    raw_key = key.strip()
+    server, port, method, password = _decode_shadowsocks_uri(raw_key)
     config = {
         'server': [server],
         'mode': 'tcp_and_udp',
@@ -3100,7 +3316,8 @@ def shadowsocks(key=None):
         'local_address': '::',
         'local_port': int(localportsh),
         'fast_open': False,
-        'ipv6_first': True
+        'ipv6_first': True,
+        'raw_uri': raw_key
     }
     with open('/opt/etc/shadowsocks.json', 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
@@ -3161,6 +3378,7 @@ ClientTransportPlugin obfs4 exec /opt/sbin/obfs4proxy managed\n'
 def main():
     global proxy_mode, bot_polling
     _daemonize_process()
+    _register_signal_handlers()
     _write_runtime_log('main() entered', mode='w')
     start_http_server()
     try:
@@ -3195,17 +3413,26 @@ def main():
             if not api_status.startswith('✅'):
                 _write_runtime_log(f'Прокси-режим {proxy_mode} не подтверждён при старте: {api_status}')
     wait_for_bot_start()
-    while True:
+    while not shutdown_requested.is_set():
         try:
             bot_polling = True
             bot.infinity_polling(timeout=60, long_polling_timeout=50)
         except Exception as err:
             bot_polling = False
             _write_runtime_log(err)
-            time.sleep(5)
+            if shutdown_requested.is_set():
+                break
+            if _is_polling_conflict(err):
+                _write_runtime_log('Обнаружен конфликт getUpdates, ожидание перед повторной попыткой 65 секунд')
+                time.sleep(65)
+            else:
+                time.sleep(5)
         else:
             bot_polling = False
+            if shutdown_requested.is_set():
+                break
             time.sleep(2)
+    _finalize_shutdown()
 
 
 if __name__ == '__main__':

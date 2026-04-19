@@ -28,7 +28,13 @@ stop_main_process() {
     for pid in $pids; do
         kill "$pid" >/dev/null 2>&1 || true
     done
-    sleep 2
+
+    attempts=0
+    while has_running_process && [ "$attempts" -lt 15 ]; do
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+
     if has_running_process; then
         pids=$(check_process)
         for pid in $pids; do

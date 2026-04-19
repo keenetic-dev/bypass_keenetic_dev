@@ -7,3 +7,5 @@ bot_2.1.9.py
 router-backup-live/
 test_proxy.py
 tmp_S24xray
+bot_config.py
+.vscode/

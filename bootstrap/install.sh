@@ -103,9 +103,7 @@ remove_added_path() {
 restore_path /opt/etc/bot/main.py
 restore_path /opt/etc/bot/installer.py
 restore_path /opt/etc/bot/installer.env
-restore_path /opt/etc/bot/bot_config.py
 restore_path /opt/etc/bot.py
-restore_path /opt/etc/bot_config.py
 restore_path /opt/etc/init.d/S99telegram_bot
 restore_path /opt/etc/init.d/S98telegram_bot_installer
 restore_path /opt/etc/ndm/fs.d/100-ipset.sh
@@ -188,9 +186,7 @@ FORK_BUTTON_LABEL="${BYPASS_FORK_BUTTON_LABEL:-Fork by ${REPO_OWNER}}"
 backup_path "$BOT_MAIN_PATH"
 backup_path "$INSTALLER_PATH"
 backup_path "$INSTALLER_ENV_PATH"
-backup_path "$BOT_CONFIG_PATH"
 backup_path "$LEGACY_MAIN_PATH"
-backup_path "$LEGACY_CONFIG_PATH"
 backup_path "$SERVICE_PATH"
 backup_path "$INSTALLER_SERVICE_PATH"
 backup_path "/opt/etc/ndm/fs.d/100-ipset.sh"
@@ -271,6 +267,10 @@ cat > "$INSTALLER_ENV_PATH" <<EOF
 BYPASS_INSTALLER_PORT=${BROWSER_PORT}
 EOF
 chmod 644 "$INSTALLER_ENV_PATH"
+
+# Force true first-run installer mode: existing bot_config would prevent
+# S98telegram_bot_installer from starting and leave the previous bot token active.
+rm -f "$BOT_CONFIG_PATH" "$LEGACY_CONFIG_PATH"
 
 "$SERVICE_PATH" stop >/dev/null 2>&1 || true
 "$INSTALLER_SERVICE_PATH" restart || "$INSTALLER_SERVICE_PATH" start || fail "Не удалось запустить web installer"
