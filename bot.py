@@ -61,6 +61,7 @@ PROXY_MODE_FILE = '/opt/etc/bot_proxy_mode'
 BOT_AUTOSTART_FILE = '/opt/etc/bot_autostart'
 TELEGRAM_COMMAND_JOB_FILE = '/opt/etc/bot/telegram_command_job.json'
 TELEGRAM_COMMAND_RESULT_FILE = '/opt/etc/bot/telegram_command_result.json'
+TELEGRAM_RESULT_RETRY_INTERVAL = 30
 
 WEB_STATUS_CACHE_TTL = 60
 KEY_STATUS_CACHE_TTL = 60
@@ -605,6 +606,19 @@ def _deliver_pending_telegram_command_result():
         _remove_file(TELEGRAM_COMMAND_RESULT_FILE)
     except Exception as exc:
         _write_runtime_log(f'Не удалось доставить результат фоновой Telegram-команды: {exc}')
+
+
+def _start_telegram_result_retry_worker():
+    def worker():
+        while not shutdown_requested.is_set():
+            try:
+                if os.path.exists(TELEGRAM_COMMAND_RESULT_FILE):
+                    _deliver_pending_telegram_command_result()
+            except Exception as exc:
+                _write_runtime_log(f'Ошибка retry-доставки результата фоновой Telegram-команды: {exc}')
+            shutdown_requested.wait(TELEGRAM_RESULT_RETRY_INTERVAL)
+
+    threading.Thread(target=worker, daemon=True).start()
 
 
 def _install_proxy_from_message(message, key_type, key_value, reply_markup):
@@ -3381,6 +3395,7 @@ def main():
     _register_signal_handlers()
     _write_runtime_log('main() entered', mode='w')
     start_http_server()
+    _start_telegram_result_retry_worker()
     try:
         _write_all_proxy_core_config()
         os.system(CORE_PROXY_SERVICE_SCRIPT + ' restart')
