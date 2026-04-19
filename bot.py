@@ -670,6 +670,24 @@ def _check_telegram_api_through_proxy(proxy_url=None, connect_timeout=6, read_ti
         return False, f'Проверка Telegram API завершилась ошибкой: {exc}'
 
 
+def _key_requires_xray(key_name, key_value):
+    if key_name not in ['vless', 'vless2']:
+        return False
+    try:
+        parsed = _parse_vless_key(key_value)
+    except Exception:
+        return False
+    security = (parsed.get('security') or '').strip().lower()
+    flow = (parsed.get('flow') or '').strip().lower()
+    return security == 'reality' or flow == 'xtls-rprx-vision'
+
+
+def _core_proxy_runtime_name():
+    if os.path.exists(XRAY_SERVICE_SCRIPT):
+        return 'xray'
+    return 'v2ray'
+
+
 def _protocol_status_for_key(key_name, key_value):
     if not key_value.strip():
         return {
@@ -693,6 +711,14 @@ def _protocol_status_for_key(key_name, key_value):
             'details': f'{endpoint_message} Бот не может использовать этот ключ.',
         }
 
+    if _key_requires_xray(key_name, key_value) and _core_proxy_runtime_name() != 'xray':
+        return {
+            'tone': 'warn',
+            'label': 'Требует Xray',
+            'details': (f'{endpoint_message} Этот ключ использует VLESS Reality/XTLS и должен работать через Xray, '
+                        'а сейчас активен V2Ray. Локальный SOCKS поднят, но внешний трафик через ключ может не пройти.'),
+        }
+
     proxy_url = proxy_settings.get(key_name)
     api_ok, api_message = _check_http_through_proxy(
         proxy_url,
@@ -701,8 +727,8 @@ def _protocol_status_for_key(key_name, key_value):
         read_timeout=4,
     )
     return {
-        'tone': 'ok' if api_ok else 'fail',
-        'label': 'Работает' if api_ok else 'Не работает',
+        'tone': 'ok' if api_ok else 'warn',
+        'label': 'Работает' if api_ok else 'Прокси поднят, но трафик не проходит',
         'details': f'{endpoint_message} {api_message}'.strip(),
     }
 

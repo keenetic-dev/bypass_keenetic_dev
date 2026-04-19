@@ -69,6 +69,21 @@ detect_core_proxy_package() {
 configure_core_proxy_service() {
   core_config_source="https://raw.githubusercontent.com/${repo}/bypass_keenetic/main/vmessconfig.json"
 
+  if [ ! -x /opt/etc/init.d/S24xray ] && [ -x /opt/sbin/xray ]; then
+    cat > /opt/etc/init.d/S24xray <<'EOF'
+#!/bin/sh
+
+ENABLED=yes
+PROCS=xray
+ARGS="run -c /opt/etc/$PROCS/config.json"
+PREARGS=""
+DESC=$PROCS
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+. /opt/etc/init.d/rc.func
+EOF
+  fi
+
   if [ -x /opt/etc/init.d/S24xray ]; then
     mkdir -p /opt/etc/xray
     curl -o /opt/etc/xray/config.json "$core_config_source"
