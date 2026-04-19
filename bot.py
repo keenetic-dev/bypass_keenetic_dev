@@ -903,10 +903,17 @@ def _protocol_status_snapshot(current_keys, force_refresh=False):
     ):
         return key_status_cache['data']
 
-    data = {
-        key_name: _protocol_status_for_key(key_name, key_value)
-        for key_name, key_value in current_keys.items()
-    }
+    data = {}
+    for key_name, key_value in current_keys.items():
+        try:
+            data[key_name] = _protocol_status_for_key(key_name, key_value)
+        except Exception as exc:
+            _write_runtime_log(f'Ошибка проверки ключа {key_name}: {exc}')
+            data[key_name] = {
+                'tone': 'warn',
+                'label': 'Ошибка проверки',
+                'details': f'Не удалось завершить проверку ключа: {exc}',
+            }
     key_status_cache['timestamp'] = now
     key_status_cache['data'] = data
     key_status_cache['signature'] = signature
@@ -1535,6 +1542,8 @@ def _refresh_status_caches_async(current_keys):
         try:
             _web_status_snapshot(force_refresh=True)
             _protocol_status_snapshot(current_keys, force_refresh=True)
+        except Exception as exc:
+            _write_runtime_log(f'Ошибка фонового обновления статусов: {exc}')
         finally:
             with status_refresh_lock:
                 status_refresh_running = False
@@ -2063,6 +2072,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         protocol_statuses = _cached_protocol_status_snapshot(current_keys) or _placeholder_protocol_statuses(current_keys)
         _refresh_status_caches_async(current_keys)
         unblock_lists = _load_unblock_lists()
+        status_refresh_pending = (
+            'Фоновая проверка связи выполняется' in status.get('api_status', '') or
+            any(item.get('label') == 'Проверяется' for item in protocol_statuses.values())
+        )
 
         message_block = ''
         if message:
@@ -2187,6 +2200,17 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
     </form>
   </section>''')
         unblock_lists_block = ''.join(unblock_cards)
+
+        auto_refresh_script = ''
+        if status_refresh_pending or command_state['running']:
+            auto_refresh_script = '''
+    <script>
+        setTimeout(function() {
+            if (!document.hidden) {
+                window.location.reload();
+            }
+        }, 4000);
+    </script>'''
 
         return f'''<!DOCTYPE html>
 <html lang="ru">
@@ -2382,6 +2406,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             }});
         }});
     </script>
+{auto_refresh_script}
 </head>
 <body>
     <div class="shell">
