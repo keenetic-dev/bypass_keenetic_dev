@@ -1009,7 +1009,7 @@ def _web_status_snapshot(force_refresh=False):
         if port:
             socks_ok = _check_socks5_handshake(port)
             socks_details = f'Локальный SOCKS {proxy_mode} 127.0.0.1:{port}: {"доступен" if socks_ok else "не отвечает как SOCKS5"}'
-    api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=2, read_timeout=3)
+    api_status = check_telegram_api(retries=1, retry_delay=1, connect_timeout=6, read_timeout=8)
     snapshot = {
         'state_label': state_label,
         'proxy_mode': proxy_mode,
@@ -1537,7 +1537,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def _build_form(self, message=''):
-        status = _web_status_snapshot()
+        status = _web_status_snapshot(force_refresh=True)
         command_state = _get_web_command_state()
         current_keys = _load_current_keys()
         unblock_lists = _load_unblock_lists()
@@ -1563,20 +1563,32 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         if status['socks_details']:
             socks_block = f'<p class="status-note">{html.escape(status["socks_details"])}' + '</p>'
 
-        status_block = f'''<div class="status-grid">
-    <div class="status-card">
-        <span class="status-label">Процесс бота</span>
-        <strong class="status-value">{html.escape(status['state_label'])}</strong>
-    </div>
-    <div class="status-card">
-        <span class="status-label">Текущий режим</span>
-        <strong class="status-value">{html.escape(status['proxy_mode'])}</strong>
-    </div>
-</div>
-<div class="notice notice-status">
+        status_block = f'''<div class="notice notice-status hero-status">
     <strong>Связь с Telegram API</strong>
     <p>{html.escape(status['api_status'])}</p>
     {socks_block}
+</div>'''
+
+        current_mode_label = {
+            'none': 'Без VPN',
+            'shadowsocks': 'Shadowsocks',
+            'vmess': 'Vmess',
+            'vless': 'Vless',
+            'trojan': 'Trojan',
+        }.get(status['proxy_mode'], status['proxy_mode'])
+
+        mode_picker_block = f'''<div id="mode-picker" class="hero-popover mode-picker hidden">
+    <form method="post" action="/set_proxy" class="mode-picker-form">
+        <label class="mode-picker-label" for="hero-proxy-type">Активный протокол</label>
+        <select id="hero-proxy-type" name="proxy_type">
+            <option value="none"{' selected' if proxy_mode == 'none' else ''}>Без VPN (по умолчанию)</option>
+            <option value="shadowsocks"{' selected' if proxy_mode == 'shadowsocks' else ''}>Shadowsocks</option>
+            <option value="vmess"{' selected' if proxy_mode == 'vmess' else ''}>Vmess</option>
+            <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless</option>
+            <option value="trojan"{' selected' if proxy_mode == 'trojan' else ''}>Trojan</option>
+        </select>
+        <button type="submit">Применить режим</button>
+    </form>
 </div>'''
 
         protocol_sections = [
@@ -1709,16 +1721,23 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         .hero{{margin-bottom:20px;padding:28px;border:1px solid var(--border);border-radius:28px;background:linear-gradient(140deg, rgba(23,30,40,.98), rgba(32,42,56,.9));box-shadow:var(--shadow);}}
         [data-theme="light"] .hero{{background:linear-gradient(140deg, rgba(255,253,248,.98), rgba(239,226,203,.88));}}
                 .hero-copy{{max-width:700px;}}
-        .hero-row{{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}}
+                .hero-row{{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}}
+                .hero-actions{{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;position:relative;justify-content:flex-end;}}
         .hero-meta{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0;}}
         .hero-chip{{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:rgba(79,140,255,.08);border:1px solid rgba(96,165,250,.18);font-size:13px;font-weight:700;color:var(--text);}}
         .theme-toggle{{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;box-shadow:none;white-space:nowrap;}}
+                .mode-toggle{{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;box-shadow:none;white-space:nowrap;}}
         .theme-toggle:hover{{filter:none;transform:none;background:rgba(255,255,255,.06);}}
+                .mode-toggle:hover{{filter:none;transform:none;background:rgba(255,255,255,.06);}}
+                .hero-popover{{position:absolute;top:54px;right:0;min-width:260px;padding:14px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg, rgba(23,30,40,.98), rgba(32,42,56,.96));box-shadow:var(--shadow);z-index:10;}}
+                [data-theme="light"] .hero-popover{{background:linear-gradient(180deg, rgba(255,253,248,.98), rgba(245,237,224,.96));}}
+                .hidden{{display:none;}}
+                .mode-picker-form{{display:grid;gap:10px;}}
+                .mode-picker-label{{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}}
         h1{{margin:0 0 12px;font-size:clamp(30px,5vw,48px);line-height:1.02;letter-spacing:-0.04em;color:var(--text);}}
         h2{{margin:0 0 14px;font-size:20px;color:var(--text);}}
                 p{{margin:0 0 10px;line-height:1.55;color:var(--muted);}}
         .hero strong{{color:var(--text);}}
-                .dashboard{{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-bottom:16px;}}
                 .layout{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}}
         .panel{{padding:18px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg, rgba(23,30,40,.96), rgba(32,42,56,.94));box-shadow:var(--shadow);}}
         [data-theme="light"] .panel{{background:linear-gradient(180deg, rgba(255,253,248,.96), rgba(245,237,224,.94));}}
@@ -1739,12 +1758,12 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 .notice strong{{display:block;margin-bottom:8px;color:var(--text);}}
         .notice-result{{background:var(--warn-bg);border:1px solid var(--warn-border);}}
         .notice-status{{background:var(--success-bg);border:1px solid var(--success-border);}}
+        .hero-status{{margin-top:16px;margin-bottom:0;}}
                 .status-note{{margin-top:10px;color:var(--text);}}
                 .log-output{{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,Monaco,monospace;color:var(--text);}}
                 .eyebrow{{display:inline-block;margin-bottom:10px;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8b6f4a;}}
                 .section-title{{margin:0 0 6px;font-size:24px;color:var(--text);}}
                 .section-subtitle{{margin:0;color:var(--muted);}}
-                .control-form{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start;}}
                 .start-card{{display:flex;flex-direction:column;justify-content:space-between;}}
                 .command-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px;}}
                 .card-topline{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}}
@@ -1754,9 +1773,10 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             body{{padding:12px;}}
                         .hero{{padding:18px;border-radius:20px;}}
             .hero-row{{flex-direction:column;align-items:stretch;}}
-                        .dashboard{{grid-template-columns:1fr;gap:12px;}}
+            .hero-actions{{width:100%;justify-content:stretch;}}
+            .theme-toggle,.mode-toggle{{justify-content:center;}}
+            .hero-popover{{position:static;min-width:0;width:100%;}}
             .layout{{grid-template-columns:1fr;gap:12px;}}
-                        .control-form{{grid-template-columns:1fr;}}
                         .command-grid{{grid-template-columns:1fr;}}
             .status-grid{{grid-template-columns:1fr;}}
                         .panel{{padding:16px;border-radius:18px;}}
@@ -1781,12 +1801,33 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             }}
         }}
 
+        function toggleModePicker() {{
+            const picker = document.getElementById('mode-picker');
+            if (!picker) {{
+                return;
+            }}
+            picker.classList.toggle('hidden');
+        }}
+
         document.addEventListener('DOMContentLoaded', function() {{
             const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
             const label = document.getElementById('theme-toggle-label');
             if (label) {{
                 label.textContent = currentTheme === 'light' ? 'Светлая тема' : 'Темная тема';
             }}
+            document.addEventListener('click', function(event) {{
+                const picker = document.getElementById('mode-picker');
+                const toggle = document.getElementById('mode-toggle-button');
+                if (!picker || !toggle) {{
+                    return;
+                }}
+                if (picker.classList.contains('hidden')) {{
+                    return;
+                }}
+                if (!picker.contains(event.target) && !toggle.contains(event.target)) {{
+                    picker.classList.add('hidden');
+                }}
+            }});
         }});
     </script>
 </head>
@@ -1799,35 +1840,22 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                         <p>Страница показывает не только состояние процесса, но и реальный статус связи с Telegram API.</p>
                         <p><strong>Вставляйте ключ полной строкой, как в Telegram.</strong></p>
                 </div>
-        <button type="button" class="theme-toggle" onclick="toggleTheme()">
-            <span>Тема</span>
-            <span id="theme-toggle-label">Темная тема</span>
-        </button>
+        <div class="hero-actions">
+            <button type="button" id="mode-toggle-button" class="mode-toggle" onclick="toggleModePicker()">
+                <span>Режим</span>
+                <span>{html.escape(current_mode_label)}</span>
+            </button>
+            <button type="button" class="theme-toggle" onclick="toggleTheme()">
+                <span>Тема</span>
+                <span id="theme-toggle-label">Темная тема</span>
+            </button>
+            {mode_picker_block}
         </div>
-                <div class="hero-meta">
-                        <span class="hero-chip">Режим: {html.escape(status['proxy_mode'])}</span>
-                        <span class="hero-chip">Бот: {html.escape(status['state_label'])}</span>
-                        <span class="hero-chip">Веб: 192.168.1.1:8080</span>
-                </div>
+        </div>
+                {status_block}
     </div>
     {message_block}
     {command_block}
-        <div class="dashboard">
-        <section class="panel">
-            <span class="eyebrow">Управление ботом</span>
-            <h2 class="section-title">Активный протокол</h2>
-            <p class="section-subtitle">Смените режим и сразу проверьте блок статуса. Он показывает реальную доступность Telegram API.</p>
-            <form method="post" action="/set_proxy" class="control-form">
-                <select name="proxy_type">
-                    <option value="none"{' selected' if proxy_mode == 'none' else ''}>Без VPN (по умолчанию)</option>
-                    <option value="shadowsocks"{' selected' if proxy_mode == 'shadowsocks' else ''}>Shadowsocks</option>
-                    <option value="vmess"{' selected' if proxy_mode == 'vmess' else ''}>Vmess</option>
-                    <option value="vless"{' selected' if proxy_mode == 'vless' else ''}>Vless</option>
-                    <option value="trojan"{' selected' if proxy_mode == 'trojan' else ''}>Trojan</option>
-                </select>
-                <button type="submit">Использовать для бота</button>
-            </form>
-        </section>
         <section class="panel start-card">
             <div>
                 <span class="eyebrow">Запуск</span>
@@ -1838,14 +1866,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 <button type="submit">Запустить бота</button>
             </form>
         </section>
-        </div>
         <div class="layout">
-        <section class="panel wide">
-            <span class="eyebrow">Диагностика</span>
-            <h2 class="section-title">Статус бота</h2>
-            {status_block}
-            <p>Если процесс поднят, но Telegram API недоступен, бот не сможет отвечать в чате. Проверяйте этот блок после смены ключа или режима.</p>
-        </section>
         <section class="panel wide">
             <span class="eyebrow">Ключи и мосты</span>
             <h2 class="section-title">Подключения по протоколам</h2>
