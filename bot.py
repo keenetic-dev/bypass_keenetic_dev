@@ -400,9 +400,6 @@ def _run_web_command(command):
     if command == 'install_original':
         _, output = _run_script_action('-install', 'tas-unn', 'bypass_keenetic')
         return output
-    if command == 'install_fork':
-        _, output = _run_script_action('-install', fork_repo_owner, fork_repo_name)
-        return output
     if command == 'update':
         _, output = _run_script_action('-update', fork_repo_owner, fork_repo_name)
         return output
@@ -681,9 +678,8 @@ def _protocol_status_snapshot(current_keys, force_refresh=False):
 
 def _web_command_label(command):
     labels = {
-        'install_fork': 'Установить из форка',
         'install_original': 'Установить оригинальную версию',
-        'update': 'Обновить через форк',
+        'update': 'Переустановить из форка без сброса',
         'remove': 'Удалить компоненты',
         'restart_services': 'Перезапустить сервисы',
         'dns_on': 'DNS Override ВКЛ',
@@ -1836,8 +1832,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         protocol_cards_html = ''.join(protocol_cards)
 
         command_buttons = [
-            ('install_fork', 'Установить из форка', ''),
-            ('update', 'Обновить через форк', ''),
+            ('update', 'Переустановить из форка без сброса', ''),
             ('restart_services', 'Перезапустить сервисы', ''),
             ('dns_on', 'DNS Override ВКЛ', ''),
             ('dns_off', 'DNS Override ВЫКЛ', ''),
@@ -2107,7 +2102,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         <section class="panel wide">
                 <span class="eyebrow">Сервис роутера</span>
                 <h2 class="section-title">Команды установки и обслуживания</h2>
-                <p class="section-subtitle">Обычные действия и потенциально опасные команды разделены по цвету, чтобы ими было труднее ошибиться.</p>
+            <p class="section-subtitle">Переустановка из форка обновляет код и служебные файлы поверх текущей установки, не затирая сохранённые ключи и списки обхода. Обычные действия и потенциально опасные команды разделены по цвету, чтобы ими было труднее ошибиться.</p>
                 <div class="command-grid">
                         {command_buttons_html}
                 </div>
