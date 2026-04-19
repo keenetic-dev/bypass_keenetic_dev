@@ -1078,6 +1078,7 @@ def _core_proxy_runtime_name():
 
 
 def _protocol_status_for_key(key_name, key_value):
+    now = time.time()
     if not key_value.strip():
         return {
             'tone': 'empty',
@@ -1109,15 +1110,22 @@ def _protocol_status_for_key(key_name, key_value):
         }
 
     proxy_url = proxy_settings.get(key_name)
-    api_ok, api_message = _check_http_through_proxy(
+    api_ok, api_message = _check_telegram_api_through_proxy(
         proxy_url,
-        url='https://api.telegram.org',
         connect_timeout=3,
         read_timeout=4,
     )
+    if (endpoint_ok and not api_ok and now - process_started_at < WEB_STATUS_STARTUP_GRACE_PERIOD and
+            _is_transient_telegram_api_failure(api_message)):
+        return {
+            'tone': 'warn',
+            'label': 'Проверяется',
+            'details': (f'{endpoint_message} Telegram API ещё перепроверяется после рестарта. '
+                        'Обновите страницу через несколько секунд.').strip(),
+        }
     return {
         'tone': 'ok' if api_ok else 'warn',
-            'label': 'Работает' if api_ok else 'Прокси поднят, но трафик TG не проходит',
+        'label': 'Работает' if api_ok else 'Прокси поднят, но трафик TG не проходит',
         'details': f'{endpoint_message} {api_message}'.strip(),
     }
 
