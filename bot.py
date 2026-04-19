@@ -64,6 +64,7 @@ sid = "0"
 PROXY_MODE_FILE = '/opt/etc/bot_proxy_mode'
 BOT_AUTOSTART_FILE = '/opt/etc/bot_autostart'
 WEB_STATUS_CACHE_TTL = 20
+KEY_STATUS_CACHE_TTL = 20
 BOT_SOURCE_PATH = os.path.abspath(__file__)
 XRAY_SERVICE_SCRIPT = '/opt/etc/init.d/S24xray'
 V2RAY_SERVICE_SCRIPT = '/opt/etc/init.d/S24v2ray'
@@ -97,6 +98,11 @@ proxy_supports_http = {
 web_status_cache = {
     'timestamp': 0,
     'data': None,
+}
+key_status_cache = {
+    'timestamp': 0,
+    'data': None,
+    'signature': None,
 }
 web_command_lock = threading.Lock()
 web_command_state = {
@@ -524,6 +530,113 @@ def _load_current_keys():
         'trojan': _load_trojan_key(),
         'tor': _load_tor_bridges(),
     }
+
+
+def _invalidate_key_status_cache():
+    key_status_cache['timestamp'] = 0
+    key_status_cache['data'] = None
+    key_status_cache['signature'] = None
+
+
+def _check_http_through_proxy(proxy_url, url='https://www.youtube.com', connect_timeout=4, read_timeout=6):
+    try:
+        response = requests.get(
+            url,
+            timeout=(connect_timeout, read_timeout),
+            proxies={'https': proxy_url, 'http': proxy_url},
+            stream=True,
+        )
+        status_code = response.status_code
+        response.close()
+        if status_code < 500:
+            return True, f'Веб-доступ через ключ подтверждён (HTTP {status_code}).'
+        return False, f'Веб-проверка через ключ вернула HTTP {status_code}.'
+    except requests.exceptions.ConnectTimeout:
+        return False, 'Прокси не установил соединение за отведённое время.'
+    except requests.exceptions.ReadTimeout:
+        return False, 'Удалённый сервер не ответил вовремя через этот ключ.'
+    except requests.exceptions.RequestException as exc:
+        return False, f'Веб-проверка через ключ завершилась ошибкой: {exc}'
+
+
+def _protocol_status_for_key(key_name, key_value):
+    if not key_value.strip():
+        return {
+            'tone': 'empty',
+            'label': 'Не сохранён',
+            'details': 'Ключ ещё не сохранён на роутере.',
+        }
+
+    if key_name == 'tor':
+        port_ready = _port_is_listening(localporttor) or _wait_for_port(None, localporttor, timeout=3)
+        if port_ready:
+            return {
+                'tone': 'warn',
+                'label': 'Мост загружен',
+                'details': f'Локальный порт Tor 127.0.0.1:{localporttor} доступен. Автоматическая веб-проверка для Tor не выполняется.',
+            }
+        return {
+            'tone': 'fail',
+            'label': 'Не поднялся',
+            'details': f'Локальный порт Tor 127.0.0.1:{localporttor} недоступен.',
+        }
+
+    if key_name == 'trojan':
+        endpoint_ok, endpoint_message = _check_local_proxy_endpoint(key_name, localporttrojan)
+        if endpoint_ok:
+            return {
+                'tone': 'warn',
+                'label': 'Порт поднят',
+                'details': endpoint_message + ' Автоматическая HTTP/SOCKS-проверка для Trojan в этой конфигурации не выполняется.',
+            }
+        return {
+            'tone': 'fail',
+            'label': 'Не поднялся',
+            'details': endpoint_message,
+        }
+
+    ports = {
+        'shadowsocks': localportsh,
+        'vmess': localportvmess,
+        'vless': localportvless,
+    }
+    port = ports.get(key_name)
+    endpoint_ok, endpoint_message = _check_local_proxy_endpoint(key_name, port)
+    if not endpoint_ok:
+        return {
+            'tone': 'fail',
+            'label': 'Локально не работает',
+            'details': endpoint_message,
+        }
+
+    proxy_url = proxy_settings.get(key_name)
+    http_ok, http_message = _check_http_through_proxy(proxy_url)
+    return {
+        'tone': 'ok' if http_ok else 'fail',
+        'label': 'Работает' if http_ok else 'Нет веб-доступа',
+        'details': f'{endpoint_message} {http_message}'.strip(),
+    }
+
+
+def _protocol_status_snapshot(current_keys, force_refresh=False):
+    signature = tuple((name, current_keys.get(name, '')) for name in sorted(current_keys))
+    now = time.time()
+    if (
+        not force_refresh and
+        key_status_cache['data'] is not None and
+        key_status_cache['signature'] == signature and
+        now - key_status_cache['timestamp'] < KEY_STATUS_CACHE_TTL
+    ):
+        return key_status_cache['data']
+
+    data = {
+        key_name: _protocol_status_for_key(key_name, key_value)
+        for key_name, key_value in current_keys.items()
+    }
+    key_status_cache['timestamp'] = now
+    key_status_cache['data'] = data
+    key_status_cache['signature'] = signature
+    return data
 
 
 def _web_command_label(command):
@@ -968,6 +1081,7 @@ def update_proxy(proxy_type):
 
     _save_proxy_mode(proxy_type)
     _invalidate_web_status_cache()
+    _invalidate_key_status_cache()
     return True, None
 
 
@@ -1570,6 +1684,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         status = _web_status_snapshot(force_refresh=True)
         command_state = _get_web_command_state()
         current_keys = _load_current_keys()
+        protocol_statuses = _protocol_status_snapshot(current_keys)
         unblock_lists = _load_unblock_lists()
 
         message_block = ''
@@ -1637,9 +1752,14 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         for key_name, title, rows, placeholder in protocol_sections:
             safe_value = html.escape(current_keys.get(key_name, ''))
             safe_title = html.escape(title)
+            status_info = protocol_statuses.get(key_name, {'tone': 'empty', 'label': 'Не сохранён', 'details': 'Ключ ещё не сохранён на роутере.'})
             protocol_cards.append(f'''<section class="panel protocol-card">
-        <span class="eyebrow">Ключ подключения</span>
+        <div class="card-topline">
+            <span class="eyebrow">Ключ подключения</span>
+            <span class="key-status-badge key-status-{status_info['tone']}">{html.escape(status_info['label'])}</span>
+        </div>
         <h2>{safe_title}</h2>
+        <p class="key-status-note">{html.escape(status_info['details'])}</p>
     <form method="post" action="/install">
       <input type="hidden" name="type" value="{key_name}">
       <textarea name="key" rows="{rows}" placeholder="{html.escape(placeholder)}" required>{safe_value}</textarea>
@@ -1799,6 +1919,12 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
                 .command-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px;}}
                 .card-topline{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}}
                 .file-chip{{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:rgba(201,111,50,.12);border:1px solid rgba(201,111,50,.2);font-size:12px;font-weight:700;color:#7c4b21;}}
+                .key-status-badge{{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid transparent;font-size:12px;font-weight:700;white-space:nowrap;}}
+                .key-status-ok{{background:rgba(31,122,106,.14);border-color:rgba(31,122,106,.3);color:#9be4d3;}}
+                .key-status-fail{{background:rgba(168,68,47,.14);border-color:rgba(168,68,47,.28);color:#ffbeb2;}}
+                .key-status-warn{{background:rgba(201,111,50,.14);border-color:rgba(201,111,50,.28);color:#f6c892;}}
+                .key-status-empty{{background:rgba(159,176,200,.1);border-color:rgba(159,176,200,.18);color:var(--muted);}}
+                .key-status-note{{margin:-4px 0 4px;color:var(--muted);font-size:14px;line-height:1.45;}}
         .wide{{grid-column:1 / -1;}}
         @media (max-width: 760px){{
             body{{padding:12px;}}
@@ -1943,6 +2069,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             else:
                 result = f'⚠️ {error}'
             _invalidate_web_status_cache()
+            _invalidate_key_status_cache()
             self._send_html(self._build_form(result))
             return
 
@@ -2021,6 +2148,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
             result = f'Ошибка установки: {exc}'
         else:
             _invalidate_web_status_cache()
+            _invalidate_key_status_cache()
 
         self._send_html(self._build_form(result))
 
