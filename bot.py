@@ -184,7 +184,14 @@ def _raw_github_url(path):
 
 
 def _telegram_info_text_from_readme():
-    readme_text = _read_text_file(README_PATH)
+    readme_text = ''
+    try:
+        response = requests.get(_raw_github_url('README.md'), timeout=20)
+        response.raise_for_status()
+        readme_text = response.text
+    except Exception:
+        readme_text = _read_text_file(README_PATH)
+
     if not readme_text.strip():
         return (
             'Информация временно недоступна: README.md не найден.\n\n'
