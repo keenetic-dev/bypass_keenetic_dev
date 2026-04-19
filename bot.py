@@ -60,8 +60,8 @@ sid = "0"
 PROXY_MODE_FILE = '/opt/etc/bot_proxy_mode'
 BOT_AUTOSTART_FILE = '/opt/etc/bot_autostart'
 
-WEB_STATUS_CACHE_TTL = 20
-KEY_STATUS_CACHE_TTL = 20
+WEB_STATUS_CACHE_TTL = 60
+KEY_STATUS_CACHE_TTL = 60
 BOT_SOURCE_PATH = os.path.abspath(__file__)
 XRAY_SERVICE_SCRIPT = '/opt/etc/init.d/S24xray'
 V2RAY_SERVICE_SCRIPT = '/opt/etc/init.d/S24v2ray'
@@ -614,7 +614,7 @@ def _invalidate_key_status_cache():
     key_status_cache['signature'] = None
 
 
-def _check_http_through_proxy(proxy_url, url='https://www.youtube.com', connect_timeout=4, read_timeout=6):
+def _check_http_through_proxy(proxy_url, url='https://www.youtube.com', connect_timeout=2, read_timeout=3):
     try:
         response = requests.get(
             url,
@@ -1264,7 +1264,7 @@ def _web_status_snapshot(force_refresh=False):
         if port:
             socks_ok = _check_socks5_handshake(port)
             socks_details = f'Локальный SOCKS {proxy_mode} 127.0.0.1:{port}: {"доступен" if socks_ok else "не отвечает как SOCKS5"}'
-    api_status = check_telegram_api(retries=1, retry_delay=1, connect_timeout=6, read_timeout=8)
+    api_status = check_telegram_api(retries=0, retry_delay=0, connect_timeout=3, read_timeout=4)
     snapshot = {
         'state_label': state_label,
         'proxy_mode': proxy_mode,
@@ -1815,7 +1815,7 @@ class KeyInstallHTTPRequestHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def _build_form(self, message=''):
-        status = _web_status_snapshot(force_refresh=True)
+        status = _web_status_snapshot(force_refresh=False)
         command_state = _get_web_command_state()
         current_keys = _load_current_keys()
         protocol_statuses = _protocol_status_snapshot(current_keys)

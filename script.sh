@@ -29,6 +29,7 @@ config_get() {
 
 BOT_CONFIG_PATH="/opt/etc/bot_config.py"
 BOT_MAIN_PATH="/opt/etc/bot.py"
+BOT_SERVICE_PATH="/opt/etc/init.d/S99telegram_bot"
 if [ -f "/opt/etc/bot/bot_config.py" ]; then
   BOT_CONFIG_PATH="/opt/etc/bot/bot_config.py"
 fi
@@ -497,19 +498,26 @@ if [ "$1" = "-update" ]; then
     sed -i "s/${bot_old_version}/${bot_new_version}/g" "$BOT_CONFIG_PATH"
     echo "Обновление выполнено. Сервисы перезапущены. Сейчас будет перезапущен бот (~15-30 сек)."
     sleep 7
-    # shellcheck disable=SC2009
-    # bot=$(ps | grep bot.py | awk '{print $1}' | head -1)
-    bot_pid=$(ps | grep bot.py | awk '{print $1}')
-    for bot in ${bot_pid}; do kill "${bot}"; done
-    sleep 5
-    python3 "$BOT_MAIN_PATH" &
-    check_running=$(pidof python3 "$BOT_MAIN_PATH")
-    if [ -z "${check_running}" ]; then
-      for bot in ${bot_pid}; do kill "${bot}"; done
+    if [ -x "$BOT_SERVICE_PATH" ]; then
+      "$BOT_SERVICE_PATH" restart
       sleep 3
-      python3 "$BOT_MAIN_PATH" &
+      if "$BOT_SERVICE_PATH" status | grep -q "Bot is running"; then
+        echo "Бот запущен. Нажмите сюда: /start"
+      else
+        echo "⚠️ Не удалось подтвердить перезапуск бота через сервис $BOT_SERVICE_PATH"
+      fi
     else
-      echo "Бот запущен. Нажмите сюда: /start";
+      bot_pid=$(pgrep -f "python3 $BOT_MAIN_PATH")
+      for bot in ${bot_pid}; do kill "${bot}" >/dev/null 2>&1 || true; done
+      sleep 5
+      python3 "$BOT_MAIN_PATH" &
+      sleep 3
+      check_running=$(pgrep -f "python3 $BOT_MAIN_PATH")
+      if [ -n "${check_running}" ]; then
+        echo "Бот запущен. Нажмите сюда: /start"
+      else
+        echo "⚠️ Не удалось подтвердить перезапуск бота"
+      fi
     fi
 
     exit 0
