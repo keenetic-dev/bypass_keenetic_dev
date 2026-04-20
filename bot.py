@@ -1007,7 +1007,7 @@ def _list_label(file_name):
     return labels.get(base, base)
 
 
-def _load_unblock_lists():
+def _load_unblock_lists(with_content=True):
     unblock_dir = '/opt/etc/unblock'
     try:
         file_names = sorted(name for name in os.listdir(unblock_dir) if name.endswith('.txt'))
@@ -1024,16 +1024,18 @@ def _load_unblock_lists():
             ordered.append(item)
     result = []
     for file_name in ordered:
-        result.append({
+        entry = {
             'name': file_name,
             'label': _list_label(file_name),
-            'content': _read_text_file(os.path.join(unblock_dir, file_name)).strip(),
-        })
+        }
+        if with_content:
+            entry['content'] = _read_text_file(os.path.join(unblock_dir, file_name)).strip()
+        result.append(entry)
     return result
 
 
 def _telegram_unblock_list_options():
-    return [(entry['label'], entry['name'][:-4]) for entry in _load_unblock_lists()]
+    return [(entry['label'], entry['name'][:-4]) for entry in _load_unblock_lists(with_content=False)]
 
 
 def _resolve_unblock_list_selection(text):
